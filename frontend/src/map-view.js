@@ -1,11 +1,17 @@
 import { LitElement, html, css, unsafeCSS } from "lit";
-import * as L from "leaflet";
+// Order matters: the cluster plugin must mutate Leaflet's exports before
+// we snapshot them. Default import keeps the live CJS exports object.
+import L from "leaflet";
+import "leaflet.markercluster";
 import leafletCss from "leaflet/dist/leaflet.css";
+import clusterCss from "leaflet.markercluster/dist/MarkerCluster.css";
+import clusterDefaultCss from "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 /**
- * Leaflet map inside shadow DOM. Renders events as circle markers or
- * GeoJSON layers, plus the radius filter circle. Emits:
- *  - "center-changed"  {lat, lon} on map click (to move the radius center)
+ * Leaflet map inside shadow DOM. Renders events as clustered circle markers
+ * or GeoJSON layers, HA zones, the radius filter circle and geometry-capture
+ * previews for the editor. Emits:
+ *  - "map-click"       {lat, lon} on any map click (panel decides meaning)
  *  - "event-selected"  {id} when a marker/shape is clicked
  */
 class ChronotopeMapView extends LitElement {
@@ -15,6 +21,7 @@ class ChronotopeMapView extends LitElement {
     radiusKm: { attribute: false },
     radiusEnabled: { attribute: false },
     zones: { attribute: false },
+    capture: { attribute: false },
     selectedId: { attribute: false },
     dark: { type: Boolean, reflect: true },
   };
@@ -22,6 +29,12 @@ class ChronotopeMapView extends LitElement {
   static styles = [
     css`
       ${unsafeCSS(leafletCss)}
+    `,
+    css`
+      ${unsafeCSS(clusterCss)}
+    `,
+    css`
+      ${unsafeCSS(clusterDefaultCss)}
     `,
     css`
       :host {
@@ -63,12 +76,19 @@ class ChronotopeMapView extends LitElement {
         color: var(--secondary-text-color, #727272);
         font-size: 0.85em;
       }
+      .popup-meta a {
+        color: var(--primary-color, #03a9f4);
+        text-decoration: none;
+      }
       .zone-home-icon {
         background: none;
         border: none;
         font-size: 18px;
         line-height: 24px;
         text-align: center;
+      }
+      :host([data-capturing]) #map {
+        cursor: crosshair;
       }
     `,
   ];
@@ -79,6 +99,7 @@ class ChronotopeMapView extends LitElement {
     this.radiusKm = 10;
     this.radiusEnabled = false;
     this.zones = [];
+    this.capture = null;
     this.dark = false;
     this._markersById = new Map();
     this._didInitialFit = false;
@@ -101,11 +122,16 @@ class ChronotopeMapView extends LitElement {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(this._map);
     this._zoneLayer = L.layerGroup().addTo(this._map);
-    this._eventLayer = L.featureGroup().addTo(this._map);
+    this._shapeLayer = L.featureGroup().addTo(this._map);
+    this._clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 40,
+      showCoverageOnHover: false,
+    }).addTo(this._map);
     this._radiusLayer = L.layerGroup().addTo(this._map);
+    this._captureLayer = L.layerGroup().addTo(this._map);
     this._map.on("click", (ev) => {
       this.dispatchEvent(
-        new CustomEvent("center-changed", {
+        new CustomEvent("map-click", {
           detail: { lat: ev.latlng.lat, lon: ev.latlng.lng },
         })
       );
@@ -131,6 +157,7 @@ class ChronotopeMapView extends LitElement {
       this._renderRadius();
     }
     if (changed.has("zones")) this._renderZones();
+    if (changed.has("capture")) this._renderCapture();
     if (changed.has("selectedId") && this.selectedId) {
       this._focusEvent(this.selectedId);
     }
@@ -141,12 +168,14 @@ class ChronotopeMapView extends LitElement {
   }
 
   _renderEvents() {
-    this._eventLayer.clearLayers();
+    this._clusterGroup.clearLayers();
+    this._shapeLayer.clearLayers();
     this._markersById.clear();
     const accent = this._accentColor();
 
     for (const event of this.events || []) {
       let layer = null;
+      let clustered = false;
       if (event.geometry) {
         try {
           layer = L.geoJSON(JSON.parse(event.geometry), {
@@ -160,6 +189,7 @@ class ChronotopeMapView extends LitElement {
       }
       if (!layer && event.lat != null && event.lon != null) {
         layer = L.circleMarker([event.lat, event.lon], this._markerStyle(accent, event));
+        clustered = true;
       }
       if (!layer) continue;
 
@@ -167,13 +197,18 @@ class ChronotopeMapView extends LitElement {
       layer.on("click", () => {
         this.dispatchEvent(new CustomEvent("event-selected", { detail: { id: event.id } }));
       });
-      layer.addTo(this._eventLayer);
-      this._markersById.set(event.id, layer);
+      (clustered ? this._clusterGroup : this._shapeLayer).addLayer(layer);
+      this._markersById.set(event.id, { layer, clustered });
     }
 
     if (!this._didInitialFit && this._markersById.size > 0) {
       this._didInitialFit = true;
-      this._map.fitBounds(this._eventLayer.getBounds().pad(0.2), { maxZoom: 14 });
+      const bounds = this._clusterGroup.getBounds().extend(
+        this._shapeLayer.getBounds()
+      );
+      if (bounds.isValid()) {
+        this._map.fitBounds(bounds.pad(0.2), { maxZoom: 14 });
+      }
     }
   }
 
@@ -183,7 +218,7 @@ class ChronotopeMapView extends LitElement {
       color: accent,
       weight: 2,
       fillColor: accent,
-      fillOpacity: 0.35,
+      fillOpacity: event?.favorite ? 0.75 : 0.35,
       // Fuzzy schedules get a dashed outline.
       dashArray: event?.time_precision === "approximate" ? "3 4" : null,
     };
@@ -202,7 +237,7 @@ class ChronotopeMapView extends LitElement {
     const div = document.createElement("div");
     const title = document.createElement("div");
     title.className = "popup-title";
-    title.textContent = event.title;
+    title.textContent = `${event.favorite ? "★ " : ""}${event.title}`;
     const meta = document.createElement("div");
     meta.className = "popup-meta";
     const start = event.occurrences?.[0]?.[0] ?? event.start_time;
@@ -218,7 +253,37 @@ class ChronotopeMapView extends LitElement {
       address.textContent = event.address;
       div.append(address);
     }
+    if (event.lat != null && event.lon != null) {
+      const nav = document.createElement("div");
+      nav.className = "popup-meta";
+      const link = document.createElement("a");
+      link.href = `https://www.openstreetmap.org/directions?to=${event.lat}%2C${event.lon}`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "🧭 Route (OSM)";
+      nav.append(link);
+      div.append(nav);
+    }
     return div;
+  }
+
+  _renderRadius() {
+    this._radiusLayer.clearLayers();
+    if (!this.radiusEnabled || !this.center) return;
+    const accent = this._accentColor();
+    L.circle([this.center.lat, this.center.lon], {
+      radius: this.radiusKm * 1000,
+      color: accent,
+      weight: 1.5,
+      dashArray: "6 6",
+      fillOpacity: 0.05,
+    }).addTo(this._radiusLayer);
+    L.circleMarker([this.center.lat, this.center.lon], {
+      radius: 4,
+      color: accent,
+      fillColor: accent,
+      fillOpacity: 1,
+    }).addTo(this._radiusLayer);
   }
 
   _renderZones() {
@@ -255,34 +320,49 @@ class ChronotopeMapView extends LitElement {
     }
   }
 
-  _renderRadius() {
-    this._radiusLayer.clearLayers();
-    if (!this.radiusEnabled || !this.center) return;
+  _renderCapture() {
+    this._captureLayer.clearLayers();
+    if (this.capture?.mode) {
+      this.setAttribute("data-capturing", "");
+    } else {
+      this.removeAttribute("data-capturing");
+      return;
+    }
     const accent = this._accentColor();
-    L.circle([this.center.lat, this.center.lon], {
-      radius: this.radiusKm * 1000,
-      color: accent,
-      weight: 1.5,
-      dashArray: "6 6",
-      fillOpacity: 0.05,
-    }).addTo(this._radiusLayer);
-    L.circleMarker([this.center.lat, this.center.lon], {
-      radius: 4,
-      color: accent,
-      fillColor: accent,
-      fillOpacity: 1,
-    }).addTo(this._radiusLayer);
+    const points = this.capture.points || [];
+    for (const [lat, lon] of points) {
+      L.circleMarker([lat, lon], {
+        radius: 5,
+        color: accent,
+        fillColor: accent,
+        fillOpacity: 0.9,
+      }).addTo(this._captureLayer);
+    }
+    if (points.length >= 2) {
+      const latlngs = points.map(([lat, lon]) => [lat, lon]);
+      if (this.capture.mode === "polygon" && points.length >= 3) {
+        L.polygon(latlngs, { color: accent, weight: 2, dashArray: "4 4", fillOpacity: 0.1 })
+          .addTo(this._captureLayer);
+      } else {
+        L.polyline(latlngs, { color: accent, weight: 2, dashArray: "4 4" })
+          .addTo(this._captureLayer);
+      }
+    }
   }
 
   _focusEvent(id) {
-    const layer = this._markersById.get(id);
-    if (!layer) return;
-    if (layer.getLatLng) {
-      this._map.panTo(layer.getLatLng());
+    const entry = this._markersById.get(id);
+    if (!entry) return;
+    const { layer, clustered } = entry;
+    if (clustered && layer.getLatLng) {
+      this._clusterGroup.zoomToShowLayer(layer, () => layer.openPopup());
     } else if (layer.getBounds) {
       this._map.fitBounds(layer.getBounds().pad(0.3), { maxZoom: 15 });
+      layer.openPopup();
+    } else if (layer.getLatLng) {
+      this._map.panTo(layer.getLatLng());
+      layer.openPopup();
     }
-    layer.openPopup();
   }
 }
 

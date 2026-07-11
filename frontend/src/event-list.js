@@ -97,6 +97,21 @@ class ChronotopeEventList extends LitElement {
     .fuzzy {
       font-style: italic;
     }
+    .icon-btn {
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 0 2px;
+      font: inherit;
+      color: var(--secondary-text-color, #727272);
+      line-height: 1;
+    }
+    .icon-btn.starred {
+      color: var(--warning-color, #ff9800);
+    }
+    .visited {
+      color: var(--success-color, #4caf50);
+    }
   `;
 
   render() {
@@ -119,9 +134,37 @@ class ChronotopeEventList extends LitElement {
       >
         <div class="title-row">
           <span class="title">${event.title}</span>
-          ${event.distance_km != null
-            ? html`<span class="distance">${this._formatDistance(event.distance_km)}</span>`
-            : nothing}
+          <span>
+            ${event.distance_km != null
+              ? html`<span class="distance">${this._formatDistance(event.distance_km)}</span>`
+              : nothing}
+            <button
+              class="icon-btn ${event.favorite ? "starred" : ""}"
+              title=${event.favorite ? "Favorit entfernen" : "Als Favorit markieren"}
+              @click=${(ev) => this._flag(ev, event, { favorite: !event.favorite })}
+            >
+              ${event.favorite ? "★" : "☆"}
+            </button>
+            <button
+              class="icon-btn"
+              title="Event bearbeiten"
+              @click=${(ev) => {
+                ev.stopPropagation();
+                this.dispatchEvent(
+                  new CustomEvent("event-edit", { detail: { id: event.id } })
+                );
+              }}
+            >
+              ✏️
+            </button>
+            <button
+              class="icon-btn"
+              title="Event ausblenden"
+              @click=${(ev) => this._flag(ev, event, { hidden: true })}
+            >
+              🙈
+            </button>
+          </span>
         </div>
         <div class="meta">
           ${this._renderWhen(event, start, end)}
@@ -138,10 +181,26 @@ class ChronotopeEventList extends LitElement {
                 >
               </span>`
             : nothing}
+          ${event.visits?.length
+            ? html`<span
+                class="visited"
+                title=${event.visits
+                  .map((v) => `${v.person_id} (${new Date(v.last_seen).toLocaleDateString()})`)
+                  .join(", ")}
+                >✓ besucht</span
+              >`
+            : nothing}
         </div>
         ${event.address ? html`<div class="address">${event.address}</div>` : nothing}
       </button>
     `;
+  }
+
+  _flag(ev, event, flags) {
+    ev.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent("event-flag", { detail: { id: event.id, ...flags } })
+    );
   }
 
   _renderWhen(event, start, end) {

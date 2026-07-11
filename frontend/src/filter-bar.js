@@ -175,6 +175,26 @@ class ChronotopeFilterBar extends LitElement {
         </div>
 
         <div class="group">
+          <span class="label">Suche</span>
+          <div class="row">
+            <input
+              type="text"
+              placeholder="Titel, Beschreibung, Adresse…"
+              .value=${s.text || ""}
+              @input=${(ev) => this._patch({ text: ev.target.value })}
+            />
+            <label class="row" style="gap:4px">
+              <input
+                type="checkbox"
+                .checked=${s.favoritesOnly}
+                @change=${(ev) => this._patch({ favoritesOnly: ev.target.checked })}
+              />
+              nur ★
+            </label>
+          </div>
+        </div>
+
+        <div class="group">
           <span class="label">Kategorie</span>
           <div class="chips">
             ${(this.categories || []).length === 0
@@ -222,15 +242,16 @@ class ChronotopeFilterBar extends LitElement {
             <input
               type="datetime-local"
               .value=${s.start}
-              @change=${(ev) => this._patch({ start: ev.target.value })}
+              @change=${(ev) => this._patch({ start: ev.target.value, dayFilter: "" })}
             />
             <span>–</span>
             <input
               type="datetime-local"
               .value=${s.end}
-              @change=${(ev) => this._patch({ end: ev.target.value })}
+              @change=${(ev) => this._patch({ end: ev.target.value, dayFilter: "" })}
             />
           </div>
+          ${this._renderDaySlider(s)}
         </div>
 
         <div class="group">
@@ -301,6 +322,52 @@ class ChronotopeFilterBar extends LitElement {
 
   _patch(patch) {
     this.dispatchEvent(new CustomEvent("filters-changed", { detail: patch }));
+  }
+
+  /** Day-by-day slider through the selected window (client-side filter). */
+  _renderDaySlider(s) {
+    if (!s.start || !s.end) return nothing;
+    const startDay = new Date(s.start);
+    startDay.setHours(0, 0, 0, 0);
+    const endDay = new Date(s.end);
+    const dayCount = Math.min(
+      Math.ceil((endDay - startDay) / 86400000),
+      60
+    );
+    if (dayCount < 2) return nothing;
+
+    const dayToValue = (dayIso) => {
+      if (!dayIso) return 0;
+      const date = new Date(`${dayIso}T00:00:00`);
+      return Math.round((date - startDay) / 86400000) + 1;
+    };
+    const valueToDay = (value) => {
+      if (!value) return "";
+      const date = new Date(startDay.getTime() + (value - 1) * 86400000);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    };
+    const current = dayToValue(s.dayFilter);
+    const label = s.dayFilter
+      ? new Date(`${s.dayFilter}T00:00:00`).toLocaleDateString(undefined, {
+          weekday: "short",
+          day: "2-digit",
+          month: "2-digit",
+        })
+      : "Alle Tage";
+    return html`
+      <div class="row">
+        <input
+          type="range"
+          min="0"
+          max=${String(dayCount)}
+          step="1"
+          .value=${String(current)}
+          @input=${(ev) => this._patch({ dayFilter: valueToDay(Number(ev.target.value)) })}
+        />
+        <span>${label}</span>
+      </div>
+    `;
   }
 
   _saveProfile() {

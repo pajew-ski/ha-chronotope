@@ -2,6 +2,7 @@ import { LitElement, html, css } from "lit";
 import "./map-view.js";
 import "./filter-bar.js";
 import "./event-list.js";
+import "./event-editor.js";
 import {
   queryEvents,
   fetchCategories,
@@ -10,7 +11,14 @@ import {
   listProfiles,
   saveProfile,
   deleteProfile,
+  saveEvent,
+  deleteEvent,
+  flagEvent,
 } from "./api.js";
+
+const QUERY_DEBOUNCE_MS = 250;
+// Filter keys that only change the display, not the server query.
+const DISPLAY_ONLY_KEYS = new Set(["showZones", "dayFilter"]);
 
 function isoToLocalInput(iso) {
   if (!iso) return "";
@@ -22,8 +30,6 @@ function isoToLocalInput(iso) {
     `T${pad(date.getHours())}:${pad(date.getMinutes())}`
   );
 }
-
-const QUERY_DEBOUNCE_MS = 250;
 
 /**
  * The Chronotope custom panel. Home Assistant sets the properties
@@ -43,6 +49,8 @@ class ChronotopePanel extends LitElement {
     _error: { state: true },
     _profiles: { state: true },
     _selectedProfileId: { state: true },
+    _editing: { state: true },
+    _capture: { state: true },
   };
 
   static styles = css`
@@ -74,6 +82,16 @@ class ChronotopePanel extends LitElement {
       font-size: 14px;
       opacity: 0.85;
     }
+    .new-event {
+      border: 1px solid currentColor;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-size: 14px;
+      padding: 5px 12px;
+      cursor: pointer;
+    }
     chronotope-filter-bar {
       flex: 0 0 auto;
     }
@@ -88,6 +106,7 @@ class ChronotopePanel extends LitElement {
       flex: 1 1 auto;
       display: flex;
       min-height: 0;
+      position: relative;
     }
     chronotope-event-list {
       flex: 0 0 340px;
@@ -118,6 +137,8 @@ class ChronotopePanel extends LitElement {
     this._error = null;
     this._profiles = [];
     this._selectedProfileId = "";
+    this._editing = null;
+    this._capture = null;
     this._filters = {
       categories: [],
       radiusEnabled: false,
@@ -132,6 +153,7 @@ class ChronotopePanel extends LitElement {
       text: "",
       favoritesOnly: false,
       showZones: true,
+      dayFilter: "",
     };
     this._initialized = false;
   }
@@ -152,14 +174,28 @@ class ChronotopePanel extends LitElement {
     }
   }
 
+  get _displayedEvents() {
+    if (!this._filters.dayFilter) return this._events;
+    const dayStart = new Date(`${this._filters.dayFilter}T00:00:00`);
+    const dayEnd = new Date(dayStart.getTime() + 86400000);
+    return this._events.filter((event) => {
+      const pairs = event.occurrences || [[event.start_time, event.end_time]];
+      return pairs.some(
+        ([start, end]) => new Date(start) < dayEnd && new Date(end) > dayStart
+      );
+    });
+  }
+
   render() {
     const dark = Boolean(this.hass?.themes?.darkMode);
+    const events = this._displayedEvents;
     return html`
       <header>
         <h1>Chronotope</h1>
         <span class="count">
-          ${this._events.length} ${this._events.length === 1 ? "Event" : "Events"}
+          ${events.length} ${events.length === 1 ? "Event" : "Events"}
         </span>
+        <button class="new-event" @click=${this._onNewEvent}>＋ Neues Event</button>
       </header>
       <chronotope-filter-bar
         .state=${this._filters}
@@ -176,22 +212,37 @@ class ChronotopePanel extends LitElement {
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       <div class="content ${this.narrow ? "narrow" : ""}">
         <chronotope-event-list
-          .events=${this._events}
+          .events=${events}
           .selectedId=${this._selectedId}
           .locale=${this.hass?.locale?.language}
           @event-selected=${this._onEventSelected}
+          @event-flag=${this._onEventFlag}
+          @event-edit=${this._onEventEdit}
         ></chronotope-event-list>
         <chronotope-map-view
-          .events=${this._events}
+          .events=${events}
           .center=${this._filters.center}
           .radiusKm=${this._filters.radiusKm}
           .radiusEnabled=${this._filters.radiusEnabled}
           .zones=${this._filters.showZones ? this._haZones() : []}
+          .capture=${this._capture}
           .selectedId=${this._selectedId}
           .dark=${dark}
-          @center-changed=${this._onCenterChanged}
+          @map-click=${this._onMapClick}
           @event-selected=${this._onEventSelected}
         ></chronotope-map-view>
+        ${this._editing !== null
+          ? html`<chronotope-event-editor
+              .event=${this._editing}
+              .categories=${this._categories}
+              .captureMode=${this._capture?.mode || null}
+              @editor-save=${this._onEditorSave}
+              @editor-delete=${this._onEditorDelete}
+              @editor-cancel=${this._onEditorCancel}
+              @capture-request=${this._onCaptureRequest}
+              @capture-finish=${this._onCaptureFinish}
+            ></chronotope-event-editor>`
+          : ""}
       </div>
     `;
   }
@@ -231,13 +282,27 @@ class ChronotopePanel extends LitElement {
   _onFiltersChanged(ev) {
     this._filters = { ...this._filters, ...ev.detail };
     this._icsCopied = false;
-    // showZones is a pure display toggle, no re-query needed.
-    const queryKeys = Object.keys(ev.detail).filter((key) => key !== "showZones");
+    const queryKeys = Object.keys(ev.detail).filter(
+      (key) => !DISPLAY_ONLY_KEYS.has(key)
+    );
     if (queryKeys.length) this._scheduleQuery();
   }
 
-  _onCenterChanged(ev) {
-    this._filters = { ...this._filters, center: ev.detail };
+  _onMapClick(ev) {
+    const { lat, lon } = ev.detail;
+    if (this._capture?.mode === "point") {
+      this._editorElement()?.setCoords(lat, lon);
+      this._capture = null;
+      return;
+    }
+    if (this._capture?.mode) {
+      this._capture = {
+        ...this._capture,
+        points: [...this._capture.points, [lat, lon]],
+      };
+      return;
+    }
+    this._filters = { ...this._filters, center: { lat, lon } };
     if (this._filters.radiusEnabled) this._scheduleQuery();
   }
 
@@ -268,6 +333,22 @@ class ChronotopePanel extends LitElement {
     }
   }
 
+  async _runQuery() {
+    if (!this.hass) return;
+    try {
+      const result = await queryEvents(this.hass, buildWsFilters(this._filters));
+      this._events = result.events;
+      this._error = null;
+      if (this._selectedId && !this._events.some((ev) => ev.id === this._selectedId)) {
+        this._selectedId = null;
+      }
+    } catch (err) {
+      this._error = `Abfrage fehlgeschlagen: ${err.message || err.code || err}`;
+    }
+  }
+
+  // ------------------------------------------------------------- profiles
+
   _onProfileSelected(ev) {
     this._selectedProfileId = ev.detail.id;
     const profile = this._profiles.find((p) => p.id === ev.detail.id);
@@ -290,6 +371,7 @@ class ChronotopePanel extends LitElement {
       timeTo: f.time_to || "",
       text: f.text || "",
       favoritesOnly: Boolean(f.favorites_only),
+      dayFilter: "",
     };
     this._scheduleQuery();
   }
@@ -319,17 +401,94 @@ class ChronotopePanel extends LitElement {
     }
   }
 
-  async _runQuery() {
-    if (!this.hass) return;
+  // --------------------------------------------------------------- editor
+
+  _editorElement() {
+    return this.renderRoot.querySelector("chronotope-event-editor");
+  }
+
+  _onNewEvent() {
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    const inTwoHours = new Date(now.getTime() + 2 * 3600000);
+    this._editing = {
+      start_time: now.toISOString(),
+      end_time: inTwoHours.toISOString(),
+    };
+    this._capture = null;
+  }
+
+  _onEventEdit(ev) {
+    const event = this._events.find((e) => e.id === ev.detail.id);
+    if (event) {
+      this._editing = event;
+      this._capture = null;
+    }
+  }
+
+  async _onEditorSave(ev) {
     try {
-      const result = await queryEvents(this.hass, buildWsFilters(this._filters));
-      this._events = result.events;
+      await saveEvent(this.hass, ev.detail.event);
+      this._editing = null;
+      this._capture = null;
       this._error = null;
-      if (this._selectedId && !this._events.some((ev) => ev.id === this._selectedId)) {
-        this._selectedId = null;
-      }
+      await this._runQuery();
+      await this._loadCategories();
     } catch (err) {
-      this._error = `Abfrage fehlgeschlagen: ${err.message || err.code || err}`;
+      this._error = `Speichern fehlgeschlagen: ${err.message || err.code || err}`;
+    }
+  }
+
+  async _onEditorDelete(ev) {
+    try {
+      await deleteEvent(this.hass, ev.detail.id);
+      this._editing = null;
+      this._capture = null;
+      await this._runQuery();
+    } catch (err) {
+      this._error = `Löschen fehlgeschlagen: ${err.message || err.code || err}`;
+    }
+  }
+
+  _onEditorCancel() {
+    this._editing = null;
+    this._capture = null;
+  }
+
+  _onCaptureRequest(ev) {
+    const mode = ev.detail.mode;
+    this._capture = mode ? { mode, points: [] } : null;
+  }
+
+  _onCaptureFinish() {
+    const capture = this._capture;
+    if (!capture) return;
+    if (capture.mode === "line" && capture.points.length >= 2) {
+      this._editorElement()?.setGeometry({
+        type: "LineString",
+        coordinates: capture.points.map(([lat, lon]) => [lon, lat]),
+      });
+    } else if (capture.mode === "polygon" && capture.points.length >= 3) {
+      const ring = capture.points.map(([lat, lon]) => [lon, lat]);
+      ring.push(ring[0]);
+      this._editorElement()?.setGeometry({ type: "Polygon", coordinates: [ring] });
+    } else {
+      this._error = "Zu wenige Punkte für die Zeichnung.";
+      return;
+    }
+    this._capture = null;
+    this._error = null;
+  }
+
+  // ---------------------------------------------------------------- flags
+
+  async _onEventFlag(ev) {
+    const { id, ...flags } = ev.detail;
+    try {
+      await flagEvent(this.hass, id, flags);
+      await this._runQuery();
+    } catch (err) {
+      this._error = `Aktion fehlgeschlagen: ${err.message || err.code || err}`;
     }
   }
 
