@@ -47,7 +47,7 @@ def _event_from_state(
     description_parts = []
     if state.state not in ("unknown", "unavailable"):
         unit = attrs.get("unit_of_measurement") or "km"
-        description_parts.append(f"Distanz: {state.state} {unit}")
+        description_parts.append(f"Distance: {state.state} {unit}")
     if attrs.get("external_id"):
         description_parts.append(f"ID: {attrs['external_id']}")
     return {

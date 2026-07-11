@@ -61,7 +61,7 @@ class ChronotopeNextEventSensor(ChronotopeEntity, SensorEntity):
         super().__init__(entry, store, profile, "next_event")
 
     def _make_name(self) -> str:
-        return f"Chronotope {self._profile['name']} nächstes Event"
+        return f"Chronotope {self._profile['name']} next event"
 
     async def async_update(self) -> None:
         now = datetime.now(timezone.utc)
@@ -106,7 +106,7 @@ class ChronotopeTodayCountSensor(ChronotopeEntity, SensorEntity):
         super().__init__(entry, store, profile, "events_today")
 
     def _make_name(self) -> str:
-        return f"Chronotope {self._profile['name']} Events heute"
+        return f"Chronotope {self._profile['name']} events today"
 
     async def async_update(self) -> None:
         tz = ZoneInfo(self.hass.config.time_zone or "UTC")
@@ -132,11 +132,11 @@ class ChronotopeStatsSensor(ChronotopeEntity, SensorEntity):
 
     def __init__(self, entry: ConfigEntry, store: EventStore) -> None:
         super().__init__(
-            entry, store, {"id": "stats", "name": "Statistik"}, "stats"
+            entry, store, {"id": "stats", "name": "Statistics"}, "stats"
         )
 
     def _make_name(self) -> str:
-        return "Chronotope Statistik"
+        return "Chronotope statistics"
 
     async def async_update(self) -> None:
         stats = await self.hass.async_add_executor_job(self._store.stats)

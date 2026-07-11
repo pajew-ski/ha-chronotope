@@ -1,4 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
+import { t } from "./i18n.js";
 
 /**
  * Distance-sorted result list (sorting happens server-side). Emits
@@ -117,7 +118,7 @@ class ChronotopeEventList extends LitElement {
   render() {
     const events = this.events || [];
     if (events.length === 0) {
-      return html`<div class="empty">Keine Events für die aktuellen Filter.</div>`;
+      return html`<div class="empty">${t("list.empty")}</div>`;
     }
     return html`${events.map((event) => this._renderItem(event))}`;
   }
@@ -140,14 +141,14 @@ class ChronotopeEventList extends LitElement {
               : nothing}
             <button
               class="icon-btn ${event.favorite ? "starred" : ""}"
-              title=${event.favorite ? "Favorit entfernen" : "Als Favorit markieren"}
+              title=${event.favorite ? t("list.favorite.remove") : t("list.favorite.add")}
               @click=${(ev) => this._flag(ev, event, { favorite: !event.favorite })}
             >
               ${event.favorite ? "★" : "☆"}
             </button>
             <button
               class="icon-btn"
-              title="Event bearbeiten"
+              title=${t("list.edit")}
               @click=${(ev) => {
                 ev.stopPropagation();
                 this.dispatchEvent(
@@ -159,7 +160,7 @@ class ChronotopeEventList extends LitElement {
             </button>
             <button
               class="icon-btn"
-              title="Event ausblenden"
+              title=${t("list.hide")}
               @click=${(ev) => this._flag(ev, event, { hidden: true })}
             >
               🙈
@@ -177,7 +178,7 @@ class ChronotopeEventList extends LitElement {
             ? html`<span class="source">
                 <a href=${event.source_url} target="_blank" rel="noopener noreferrer"
                   @click=${(ev) => ev.stopPropagation()}
-                  >${event.source_name || "Quelle"}</a
+                  >${event.source_name || t("list.source")}</a
                 >
               </span>`
             : nothing}
@@ -187,7 +188,7 @@ class ChronotopeEventList extends LitElement {
                 title=${event.visits
                   .map((v) => `${v.person_id} (${new Date(v.last_seen).toLocaleDateString()})`)
                   .join(", ")}
-                >✓ besucht</span
+                >${t("list.visited")}</span
               >`
             : nothing}
         </div>
@@ -206,7 +207,7 @@ class ChronotopeEventList extends LitElement {
   _renderWhen(event, start, end) {
     if (event.time_precision === "approximate") {
       const text = event.schedule_text || this._formatRange(start, end);
-      return html`<span class="fuzzy" title="Unpräzise Zeitangabe">~ ${text}</span>`;
+      return html`<span class="fuzzy" title=${t("list.fuzzy")}>~ ${text}</span>`;
     }
     return html`<span>${this._formatRange(start, end)}</span>`;
   }

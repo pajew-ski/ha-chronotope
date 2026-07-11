@@ -1,4 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
+import { t } from "./i18n.js";
 
 function isoToLocalInput(iso) {
   if (!iso) return "";
@@ -161,14 +162,14 @@ class ChronotopeEventEditor extends LitElement {
     const d = this._draft || {};
     return html`
       <form @submit=${this._save}>
-        <h2>${d.id ? "Event bearbeiten" : "Neues Event"}</h2>
+        <h2>${d.id ? t("editor.edit") : t("editor.new")}</h2>
         ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
         <label>
-          Titel*
+          ${t("editor.title")}
           <input required .value=${d.title} @input=${this._set("title")} />
         </label>
         <label>
-          Kategorie
+          ${t("editor.category")}
           <input list="categories" .value=${d.category} @input=${this._set("category")} />
           <datalist id="categories">
             ${(this.categories || []).map((c) => html`<option value=${c}></option>`)}
@@ -176,19 +177,19 @@ class ChronotopeEventEditor extends LitElement {
         </label>
         <div class="row">
           <label>
-            Beginn*
+            ${t("editor.start")}
             <input type="datetime-local" required .value=${d.start} @input=${this._set("start")} />
           </label>
           <label>
-            Ende*
+            ${t("editor.end")}
             <input type="datetime-local" required .value=${d.end} @input=${this._set("end")} />
           </label>
         </div>
         <label>
-          Adresse
+          ${t("editor.address")}
           <input
             .value=${d.address}
-            placeholder="füllt Koordinaten aus dem Cache"
+            placeholder=${t("editor.address.placeholder")}
             @input=${this._set("address")}
           />
         </label>
@@ -208,11 +209,11 @@ class ChronotopeEventEditor extends LitElement {
             aria-pressed=${this.captureMode === "point" ? "true" : "false"}
             @click=${() => this._requestCapture("point")}
           >
-            📍 Punkt per Kartenklick
+            ${t("editor.pickPoint")}
           </button>
         </div>
         <label>
-          Wiederholung (RRULE)
+          ${t("editor.rrule")}
           <input
             .value=${d.recurrence}
             placeholder="FREQ=WEEKLY;BYDAY=SA"
@@ -221,23 +222,23 @@ class ChronotopeEventEditor extends LitElement {
         </label>
         <div class="row">
           <label>
-            Zeit-Präzision
+            ${t("editor.precision")}
             <select .value=${d.time_precision} @change=${this._set("time_precision")}>
-              <option value="exact">exakt</option>
-              <option value="approximate">ungefähr</option>
+              <option value="exact">${t("editor.precision.exact")}</option>
+              <option value="approximate">${t("editor.precision.approximate")}</option>
             </select>
           </label>
           <label>
-            Zeitangabe (Wortlaut)
+            ${t("editor.scheduleText")}
             <input
               .value=${d.schedule_text}
-              placeholder="mittwochs 18 Uhr, ca. 2x im Monat"
+              placeholder=${t("editor.scheduleText.placeholder")}
               @input=${this._set("schedule_text")}
             />
           </label>
         </div>
         <label>
-          Geometrie (GeoJSON, optional)
+          ${t("editor.geometry")}
           <textarea .value=${d.geometry} @input=${this._set("geometry")}></textarea>
         </label>
         <div class="buttons">
@@ -246,40 +247,40 @@ class ChronotopeEventEditor extends LitElement {
             aria-pressed=${this.captureMode === "line" ? "true" : "false"}
             @click=${() => this._requestCapture("line")}
           >
-            ➰ Linie zeichnen
+            ${t("editor.drawLine")}
           </button>
           <button
             type="button"
             aria-pressed=${this.captureMode === "polygon" ? "true" : "false"}
             @click=${() => this._requestCapture("polygon")}
           >
-            ⬠ Fläche zeichnen
+            ${t("editor.drawPolygon")}
           </button>
           ${this.captureMode === "line" || this.captureMode === "polygon"
             ? html`<button type="button" class="primary" @click=${this._finishCapture}>
-                ✓ Zeichnung übernehmen
+                ${t("editor.applyDrawing")}
               </button>`
             : nothing}
         </div>
         ${this.captureMode
           ? html`<div class="hint">
-              Klicke auf die Karte, um ${this.captureMode === "point"
-                ? "den Punkt zu setzen"
-                : "Punkte hinzuzufügen"}.
+              ${this.captureMode === "point"
+                ? t("editor.captureHint.point")
+                : t("editor.captureHint.points")}
             </div>`
           : nothing}
         <div class="row">
           <label>
-            Quelle
+            ${t("editor.source")}
             <input .value=${d.source_name} @input=${this._set("source_name")} />
           </label>
           <label>
-            Quell-URL
+            ${t("editor.sourceUrl")}
             <input .value=${d.source_url} @input=${this._set("source_url")} />
           </label>
         </div>
         <label>
-          Beschreibung
+          ${t("editor.description")}
           <textarea .value=${d.raw_description} @input=${this._set("raw_description")}></textarea>
         </label>
         <label style="flex-direction: row; align-items: center; gap: 8px;">
@@ -288,12 +289,12 @@ class ChronotopeEventEditor extends LitElement {
             .checked=${d.favorite}
             @change=${(ev) => (this._draft = { ...this._draft, favorite: ev.target.checked })}
           />
-          Favorit ★
+          ${t("editor.favorite")}
         </label>
         <div class="buttons">
-          <button type="submit" class="primary">Speichern</button>
+          <button type="submit" class="primary">${t("editor.save")}</button>
           <button type="button" @click=${() => this.dispatchEvent(new CustomEvent("editor-cancel"))}>
-            Abbrechen
+            ${t("editor.cancel")}
           </button>
           ${d.id
             ? html`<button
@@ -304,7 +305,7 @@ class ChronotopeEventEditor extends LitElement {
                     new CustomEvent("editor-delete", { detail: { id: d.id } })
                   )}
               >
-                Löschen
+                ${t("editor.delete")}
               </button>`
             : nothing}
         </div>
@@ -331,7 +332,7 @@ class ChronotopeEventEditor extends LitElement {
     ev.preventDefault();
     const d = this._draft;
     if (!d.start || !d.end) {
-      this._error = "Beginn und Ende sind Pflichtfelder.";
+      this._error = t("editor.error.times");
       return;
     }
     let geometry = null;
@@ -339,14 +340,14 @@ class ChronotopeEventEditor extends LitElement {
       try {
         geometry = JSON.parse(d.geometry);
       } catch (err) {
-        this._error = "Geometrie ist kein gültiges JSON.";
+        this._error = t("editor.error.geometry");
         return;
       }
     }
     const hasLat = d.lat !== "" && d.lat != null;
     const hasLon = d.lon !== "" && d.lon != null;
     if (hasLat !== hasLon) {
-      this._error = "Lat und Lon nur gemeinsam angeben.";
+      this._error = t("editor.error.coords");
       return;
     }
     const event = {

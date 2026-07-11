@@ -192,3 +192,11 @@ Kalender-Entities und ICS-Export die Unschärfe ausweisen.
   Requests im Backend nur nutzerinitiiert (`import_*` mit URL).
 - Schreibpfade feuern immer `notify_event_change`/`notify_profiles_changed`
   (`signals.py`), sonst veralten Kalender/Sensoren.
+- **Sprachen (HACS-Standard):** Alles Nutzer-Sichtbare ist Englisch als
+  Default — README, `services.yaml`, Entity-Namen, Digest-Texte,
+  LLM-Prompt. Deutsch kommt über Lokalisierung: Config-/Options-Flow via
+  `translations/de.json`, das Panel via `frontend/src/i18n.js` (folgt der
+  Profilsprache, `setLanguage()` im Panel), der Digest via
+  `hass.config.language`. Neue UI-Strings immer in beiden Wörterbüchern
+  (en + de) anlegen; `CLAUDE.md` selbst bleibt Deutsch (internes
+  Engineering-Dokument).

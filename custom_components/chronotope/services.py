@@ -78,12 +78,33 @@ _QUERY_SCHEMA = vol.Schema(
 )
 
 
-_WEEKDAYS_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+# Digest wording follows the HA core language (German or English).
+_DIGEST_STRINGS = {
+    "en": {
+        "weekdays": ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
+        "title": "Chronotope: {n} events in the next {days} days",
+        "empty": "No matching events found.",
+        "free": "[free]",
+        "busy": "[busy]",
+    },
+    "de": {
+        "weekdays": ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"),
+        "title": "Chronotope: {n} Events in den nächsten {days} Tagen",
+        "empty": "Keine passenden Events gefunden.",
+        "free": "[frei]",
+        "busy": "[belegt]",
+    },
+}
 
 
-def _format_local(iso: str, tz: ZoneInfo) -> str:
+def _digest_strings(hass: HomeAssistant) -> dict[str, Any]:
+    language = (hass.config.language or "en").lower().split("-")[0]
+    return _DIGEST_STRINGS.get(language, _DIGEST_STRINGS["en"])
+
+
+def _format_local(iso: str, tz: ZoneInfo, weekdays: tuple[str, ...]) -> str:
     dt = datetime.fromisoformat(iso).astimezone(tz)
-    return f"{_WEEKDAYS_DE[dt.weekday()]} {dt.day:02d}.{dt.month:02d}. {dt:%H:%M}"
+    return f"{weekdays[dt.weekday()]} {dt.day:02d}.{dt.month:02d}. {dt:%H:%M}"
 
 
 def _parse_calendar_time(value: Any, tz: ZoneInfo) -> datetime | None:
@@ -248,6 +269,7 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def handle_digest(call: ServiceCall) -> ServiceResponse:
         store = _get_store(hass)
         tz = ZoneInfo(hass.config.time_zone or "UTC")
+        strings = _digest_strings(hass)
         days = call.data.get("days", 7)
         now = datetime.now(timezone.utc)
         window_end = now + timedelta(days=days)
@@ -291,7 +313,7 @@ def async_register_services(hass: HomeAssistant) -> None:
             when = (
                 f"~ {event['schedule_text']}"
                 if fuzzy and event.get("schedule_text")
-                else _format_local(occ_start, tz)
+                else _format_local(occ_start, tz, strings["weekdays"])
             )
             parts = [when, "–", event["title"]]
             extras = []
@@ -304,16 +326,16 @@ def async_register_services(hass: HomeAssistant) -> None:
             if event.get("favorite"):
                 parts.append("★")
             if check_calendars:
-                parts.append("[belegt]" if conflict else "[frei]")
+                parts.append(strings["busy"] if conflict else strings["free"])
             lines.append("• " + " ".join(parts))
             items.append(
                 {**event, "digest_start": occ_start, "conflict": conflict}
             )
 
-        title = call.data.get("title") or (
-            f"Chronotope: {len(items)} Events in den nächsten {days} Tagen"
+        title = call.data.get("title") or strings["title"].format(
+            n=len(items), days=days
         )
-        text = "\n".join(lines) if lines else "Keine passenden Events gefunden."
+        text = "\n".join(lines) if lines else strings["empty"]
 
         if notify_service := call.data.get("notify_service"):
             domain, _, service = notify_service.rpartition(".")
@@ -377,16 +399,18 @@ def async_register_services(hass: HomeAssistant) -> None:
         tz_name = hass.config.time_zone or "UTC"
         today = datetime.now(ZoneInfo(tz_name)).strftime("%A, %Y-%m-%d")
         prompt = (
-            "Extrahiere aus dem folgenden Text ein Event als reines JSON-Objekt"
-            " (keine Erklärungen, kein Markdown) mit diesen Feldern:"
-            ' title (Pflicht), category, address, lat, lon, start_time und'
-            " end_time (ISO 8601 mit Zeitzonen-Offset), recurrence (RRULE nach"
-            " RFC 5545, nur wenn wiederkehrend; BYHOUR/BYDAY in lokaler Zeit),"
-            ' time_precision ("exact" oder "approximate" bei unscharfen'
-            ' Angaben wie "ca. 2x im Monat"), schedule_text (Original-Wortlaut'
-            " der Zeitangabe bei approximate), raw_description, source_url."
-            f" Nicht ermittelbare Felder weglassen. Heute ist {today},"
-            f" Zeitzone {tz_name}. Text:\n\n{call.data['text']}"
+            "Extract one event from the following text as a pure JSON object"
+            " (no explanations, no markdown) with these fields:"
+            " title (required), category, address, lat, lon, start_time and"
+            " end_time (ISO 8601 with timezone offset), recurrence (RFC 5545"
+            " RRULE, only if recurring; BYHOUR/BYDAY mean local time),"
+            ' time_precision ("exact", or "approximate" for vague wording'
+            ' like "about twice a month"), schedule_text (the original'
+            " schedule wording when approximate), raw_description,"
+            " source_url. Omit fields you cannot determine. Keep the"
+            " original language of the text for title and descriptions."
+            f" Today is {today}, timezone {tz_name}. Text:\n\n"
+            f"{call.data['text']}"
         )
         service_data: dict[str, Any] = {"text": prompt}
         if agent := call.data.get("agent_id"):

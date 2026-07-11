@@ -4,6 +4,7 @@ import { LitElement, html, css, unsafeCSS } from "lit";
 import L from "leaflet";
 import "leaflet.markercluster";
 import leafletCss from "leaflet/dist/leaflet.css";
+import { t } from "./i18n.js";
 import clusterCss from "leaflet.markercluster/dist/MarkerCluster.css";
 import clusterDefaultCss from "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
@@ -301,7 +302,7 @@ class ChronotopeMapView extends LitElement {
       link.href = `https://www.openstreetmap.org/directions?to=${event.lat}%2C${event.lon}`;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      link.textContent = "🧭 Route (OSM)";
+      link.textContent = t("map.route");
       nav.append(link);
       div.append(nav);
     }

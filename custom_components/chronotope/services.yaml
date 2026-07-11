@@ -1,40 +1,40 @@
 add_event:
-  name: Event hinzufügen
+  name: Add event
   description: >-
-    Legt ein Event an oder aktualisiert es (Upsert per id). Zeiten als
-    ISO 8601 mit Zeitzone; eine Adresse ohne Koordinaten wird aus dem
-    Adress-Geo-Cache aufgelöst, falls bekannt.
+    Creates or updates an event (upsert by id). Times must be ISO 8601 with
+    a timezone offset; an address without coordinates is resolved from the
+    address geo cache when known.
   fields:
     title:
-      name: Titel
+      name: Title
       required: true
-      example: "Flohmarkt Boxhagener Platz"
+      example: "Flea market Boxhagener Platz"
       selector:
         text:
     start_time:
-      name: Beginn
+      name: Start
       required: true
       example: "2026-07-12T10:00:00+02:00"
       selector:
         text:
     end_time:
-      name: Ende
+      name: End
       required: true
       example: "2026-07-12T16:00:00+02:00"
       selector:
         text:
     category:
-      name: Kategorie
+      name: Category
       example: "market"
       selector:
         text:
     address:
-      name: Adresse
+      name: Address
       example: "Boxhagener Platz 1, 10245 Berlin"
       selector:
         text:
     lat:
-      name: Breitengrad
+      name: Latitude
       selector:
         number:
           min: -90
@@ -42,7 +42,7 @@ add_event:
           step: any
           mode: box
     lon:
-      name: Längengrad
+      name: Longitude
       selector:
         number:
           min: -180
@@ -50,32 +50,32 @@ add_event:
           step: any
           mode: box
     recurrence:
-      name: Wiederholung (RRULE)
+      name: Recurrence (RRULE)
       example: "FREQ=WEEKLY;BYDAY=SU"
       selector:
         text:
     time_precision:
-      name: Zeit-Präzision
+      name: Time precision
       selector:
         select:
           options:
             - exact
             - approximate
     schedule_text:
-      name: Zeitangabe (Wortlaut)
-      example: "mittwochs 18 Uhr, ca. 2x im Monat"
+      name: Schedule wording
+      example: "Wednesdays 6 pm, ~twice a month"
       selector:
         text:
     source_name:
-      name: Quelle
+      name: Source name
       selector:
         text:
     source_url:
-      name: Quell-URL
+      name: Source URL
       selector:
         text:
     confidence:
-      name: Konfidenz
+      name: Confidence
       selector:
         select:
           options:
@@ -83,37 +83,43 @@ add_event:
             - scraped
             - inferred
     raw_description:
-      name: Beschreibung
+      name: Description
       selector:
         text:
           multiline: true
+    dedupe:
+      name: Deduplicate
+      description: Merge into an existing event with same title, time and place.
+      default: false
+      selector:
+        boolean:
 
 delete_event:
-  name: Event löschen
-  description: Löscht ein Event per id.
+  name: Delete event
+  description: Deletes an event by id.
   fields:
     event_id:
-      name: Event-ID
+      name: Event ID
       required: true
       selector:
         text:
 
 query:
-  name: Events abfragen
+  name: Query events
   description: >-
-    Fragt Events mit kombinierbaren Filtern ab (Antwort als Response-Daten).
-    Entweder ein gespeichertes Profil angeben oder Einzelfilter.
+    Queries events with combinable filters (result in the response data).
+    Either reference a stored profile or pass individual filters.
   fields:
     profile:
-      name: Profil (ID oder Name)
+      name: Profile (id or name)
       selector:
         text:
     categories:
-      name: Kategorien
+      name: Categories
       selector:
         object:
     lat:
-      name: Breitengrad (Zentrum)
+      name: Latitude (center)
       selector:
         number:
           min: -90
@@ -121,7 +127,7 @@ query:
           step: any
           mode: box
     lon:
-      name: Längengrad (Zentrum)
+      name: Longitude (center)
       selector:
         number:
           min: -180
@@ -137,33 +143,33 @@ query:
           step: any
           mode: box
     start:
-      name: Fensterbeginn
+      name: Window start
       example: "2026-07-11T00:00:00+02:00"
       selector:
         text:
     end:
-      name: Fensterende
+      name: Window end
       selector:
         text:
     weekdays:
-      name: Wochentage (0=Mo)
+      name: Weekdays (0=Mon)
       selector:
         object:
     time_from:
-      name: Uhrzeit von
+      name: Time from
       example: "18:00"
       selector:
         text:
     time_to:
-      name: Uhrzeit bis
+      name: Time to
       selector:
         text:
     text:
-      name: Textsuche
+      name: Text search
       selector:
         text:
     favorites_only:
-      name: Nur Favoriten
+      name: Favorites only
       selector:
         boolean:
     limit:
@@ -174,180 +180,32 @@ query:
           max: 1000
           mode: box
 
-import_ics:
-  name: ICS importieren
+lookup_place:
+  name: Look up address
   description: >-
-    Importiert Events aus einem iCalendar-Feed (URL, Datei relativ zum
-    Config-Verzeichnis oder direkt übergebener Inhalt). UIDs werden zu
-    Event-IDs, Re-Importe aktualisieren statt zu duplizieren.
+    Returns cached coordinates for an address from the address geo cache
+    (result in the response data).
   fields:
-    url:
-      name: URL
-      example: "https://example.org/feed.ics"
-      selector:
-        text:
-    path:
-      name: Dateipfad
-      example: "www/feed.ics"
-      selector:
-        text:
-    data:
-      name: ICS-Inhalt
-      selector:
-        text:
-          multiline: true
-    source_name:
-      name: Quellenname
-      selector:
-        text:
-    category:
-      name: Kategorie (überschreibt)
-      selector:
-        text:
-    dedupe:
-      name: Deduplizieren
-      default: true
-      selector:
-        boolean:
-
-import_geojson:
-  name: GeoJSON importieren
-  description: >-
-    Importiert GeoJSON-Features als Events. Zeiten kommen aus den
-    Feature-Properties (start_time/end_time) oder den Defaults.
-  fields:
-    url:
-      name: URL
-      selector:
-        text:
-    path:
-      name: Dateipfad
-      selector:
-        text:
-    data:
-      name: GeoJSON-Inhalt
-      selector:
-        text:
-          multiline: true
-    default_start:
-      name: Standard-Beginn
-      example: "2026-07-12T10:00:00+02:00"
-      selector:
-        text:
-    default_end:
-      name: Standard-Ende
-      selector:
-        text:
-    title_property:
-      name: Titel-Property
-      example: "name"
-      selector:
-        text:
-    source_name:
-      name: Quellenname
-      selector:
-        text:
-    category:
-      name: Kategorie (überschreibt)
-      selector:
-        text:
-    dedupe:
-      name: Deduplizieren
-      default: true
-      selector:
-        boolean:
-
-import_gpx:
-  name: GPX importieren
-  description: >-
-    Importiert GPX-Tracks als Events mit LineString-Geometrie. Zeiten aus
-    den Trackpunkten oder den Defaults.
-  fields:
-    url:
-      name: URL
-      selector:
-        text:
-    path:
-      name: Dateipfad
-      selector:
-        text:
-    data:
-      name: GPX-Inhalt
-      selector:
-        text:
-          multiline: true
-    default_start:
-      name: Standard-Beginn
-      selector:
-        text:
-    default_end:
-      name: Standard-Ende
-      selector:
-        text:
-    source_name:
-      name: Quellenname
-      selector:
-        text:
-    category:
-      name: Kategorie
-      selector:
-        text:
-    dedupe:
-      name: Deduplizieren
-      default: true
-      selector:
-        boolean:
-
-backup:
-  name: Datenbank sichern
-  description: >-
-    Erstellt eine konsistente Kopie der Event-Datenbank (SQLite-Backup-API)
-    im Config-Verzeichnis; Antwort enthält den Pfad.
-  fields:
-    filename:
-      name: Dateiname
-      example: "chronotope-backup.db"
-      selector:
-        text:
-
-extract_event:
-  name: Event aus Text extrahieren (experimentell)
-  description: >-
-    Lässt einen Conversation-Agenten (LLM) aus Freitext ein strukturiertes
-    Event extrahieren — inkl. Best-Effort-RRULE und Unschärfe-Kennzeichnung.
-    Optional direkt speichern (confidence: inferred).
-  fields:
-    text:
-      name: Text
+    address:
+      name: Address
       required: true
-      example: "Flohmarkt am Boxhagener Platz, jeden Sonntag 10-16 Uhr"
       selector:
         text:
-          multiline: true
-    agent_id:
-      name: Conversation-Agent
-      selector:
-        conversation_agent:
-    save:
-      name: Direkt speichern
-      default: false
-      selector:
-        boolean:
 
 digest:
-  name: Digest erzeugen
+  name: Create digest
   description: >-
-    Stellt die nächsten Events (optional nach Profil gefiltert) als Text
-    zusammen — für Benachrichtigungs-Automationen ("Diese Woche in deiner
-    Nähe"). Optional direkt an einen notify-Dienst senden und Termine gegen
-    eigene Kalender auf freie Zeit prüfen.
+    Compiles the upcoming events (optionally filtered by a profile) into a
+    text digest for notification automations ("this week nearby"). Can send
+    directly to a notify service and check occurrences against your own
+    calendars for free/busy.
   fields:
     profile:
-      name: Profil (ID oder Name)
+      name: Profile (id or name)
       selector:
         text:
     days:
-      name: Zeitraum (Tage)
+      name: Range (days)
       default: 7
       selector:
         number:
@@ -355,7 +213,7 @@ digest:
           max: 90
           mode: box
     limit:
-      name: Max. Events
+      name: Max events
       default: 25
       selector:
         number:
@@ -363,33 +221,156 @@ digest:
           max: 200
           mode: box
     title:
-      name: Titel
+      name: Title
       selector:
         text:
     notify_service:
-      name: Notify-Dienst
+      name: Notify service
       example: "notify.mobile_app_iphone"
       selector:
         text:
     check_calendars:
-      name: Frei-Zeit-Abgleich gegen Kalender
-      example: "calendar.privat"
+      name: Free/busy check against calendars
+      example: "calendar.private"
       selector:
         entity:
           multiple: true
           filter:
             domain: calendar
 
-match_visits:
-  name: Besuche rückwirkend abgleichen
+import_ics:
+  name: Import ICS
   description: >-
-    Gleicht die aufgezeichnete Positionshistorie deiner Personen (Recorder)
-    mit vergangenen Events ab und füllt die Besuchshistorie rückwirkend.
-    Reicht nur so weit zurück, wie der Recorder Daten vorhält
-    (purge_keep_days, Standard 10 Tage).
+    Imports events from an iCalendar feed (URL, file relative to the config
+    directory, or inline content). UIDs become event ids, so re-imports
+    update instead of duplicating.
+  fields:
+    url:
+      name: URL
+      example: "https://example.org/feed.ics"
+      selector:
+        text:
+    path:
+      name: File path
+      example: "www/feed.ics"
+      selector:
+        text:
+    data:
+      name: ICS content
+      selector:
+        text:
+          multiline: true
+    source_name:
+      name: Source name
+      selector:
+        text:
+    category:
+      name: Category (override)
+      selector:
+        text:
+    dedupe:
+      name: Deduplicate
+      default: true
+      selector:
+        boolean:
+
+import_geojson:
+  name: Import GeoJSON
+  description: >-
+    Imports GeoJSON features as events. Times come from the feature
+    properties (start_time/end_time) or the provided defaults.
+  fields:
+    url:
+      name: URL
+      selector:
+        text:
+    path:
+      name: File path
+      selector:
+        text:
+    data:
+      name: GeoJSON content
+      selector:
+        text:
+          multiline: true
+    default_start:
+      name: Default start
+      example: "2026-07-12T10:00:00+02:00"
+      selector:
+        text:
+    default_end:
+      name: Default end
+      selector:
+        text:
+    title_property:
+      name: Title property
+      example: "name"
+      selector:
+        text:
+    source_name:
+      name: Source name
+      selector:
+        text:
+    category:
+      name: Category (override)
+      selector:
+        text:
+    dedupe:
+      name: Deduplicate
+      default: true
+      selector:
+        boolean:
+
+import_gpx:
+  name: Import GPX
+  description: >-
+    Imports GPX tracks as events with LineString geometry. Times come from
+    the track points or the provided defaults.
+  fields:
+    url:
+      name: URL
+      selector:
+        text:
+    path:
+      name: File path
+      selector:
+        text:
+    data:
+      name: GPX content
+      selector:
+        text:
+          multiline: true
+    default_start:
+      name: Default start
+      selector:
+        text:
+    default_end:
+      name: Default end
+      selector:
+        text:
+    source_name:
+      name: Source name
+      selector:
+        text:
+    category:
+      name: Category
+      selector:
+        text:
+    dedupe:
+      name: Deduplicate
+      default: true
+      selector:
+        boolean:
+
+match_visits:
+  name: Match visits retroactively
+  description: >-
+    Matches the recorded position history of your persons (recorder) against
+    past events and fills the visit history retroactively. Only reaches back
+    as far as the recorder retention (purge_keep_days, default 10 days).
   fields:
     days:
-      name: Zeitraum (Tage)
+      name: Range (days)
       default: 10
       selector:
         number:
@@ -406,22 +387,58 @@ match_visits:
           step: any
           mode: box
     person_entities:
-      name: Personen (leer = alle)
+      name: Persons (empty = all)
       selector:
         entity:
           multiple: true
           filter:
             domain: person
 
-purge:
-  name: Alte Events aufräumen
+backup:
+  name: Back up database
   description: >-
-    Löscht Events, deren Ende länger als N Tage zurückliegt. Wiederkehrende
-    Events werden nur gelöscht, wenn die Regel ausgelaufen ist (COUNT/UNTIL
-    erreicht); unbegrenzte Regeln bleiben erhalten.
+    Creates a consistent copy of the event database (SQLite backup API) in
+    the config directory; the response contains the path.
+  fields:
+    filename:
+      name: File name
+      example: "chronotope-backup.db"
+      selector:
+        text:
+
+extract_event:
+  name: Extract event from text (experimental)
+  description: >-
+    Lets a conversation agent (LLM) extract a structured event from free
+    text — including a best-effort RRULE and fuzzy-time marking. Optionally
+    saves it directly (confidence: inferred).
+  fields:
+    text:
+      name: Text
+      required: true
+      example: "Flea market at Boxhagener Platz, every Sunday 10 am - 4 pm"
+      selector:
+        text:
+          multiline: true
+    agent_id:
+      name: Conversation agent
+      selector:
+        conversation_agent:
+    save:
+      name: Save directly
+      default: false
+      selector:
+        boolean:
+
+purge:
+  name: Purge old events
+  description: >-
+    Deletes events whose end is more than N days in the past. Recurring
+    events are only deleted when their rule has run out (COUNT/UNTIL
+    reached); unbounded rules are kept.
   fields:
     older_than_days:
-      name: Älter als (Tage)
+      name: Older than (days)
       required: true
       example: 30
       selector:
@@ -430,18 +447,6 @@ purge:
           max: 3650
           mode: box
     source_name:
-      name: Nur Quelle
-      selector:
-        text:
-
-lookup_place:
-  name: Adresse nachschlagen
-  description: >-
-    Liefert gecachte Koordinaten zu einer Adresse aus dem Adress-Geo-Cache
-    (Antwort als Response-Daten).
-  fields:
-    address:
-      name: Adresse
-      required: true
+      name: Source only
       selector:
         text:

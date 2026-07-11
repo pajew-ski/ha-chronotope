@@ -16,6 +16,7 @@ import {
   flagEvent,
   fetchStats,
 } from "./api.js";
+import { setLanguage, t } from "./i18n.js";
 
 const QUERY_DEBOUNCE_MS = 250;
 // Filter keys that only change the display, not the server query.
@@ -169,6 +170,9 @@ class ChronotopePanel extends LitElement {
   }
 
   willUpdate(changed) {
+    if (changed.has("hass") && this.hass) {
+      setLanguage(this.hass.locale?.language || this.hass.language);
+    }
     if (changed.has("hass") && this.hass && !this._initialized) {
       this._initialized = true;
       this._filters = {
@@ -212,9 +216,13 @@ class ChronotopePanel extends LitElement {
       <header>
         <h1>Chronotope</h1>
         <span class="count">
-          ${events.length} ${events.length === 1 ? "Event" : "Events"}
+          ${t(events.length === 1 ? "panel.count.one" : "panel.count.other", {
+            n: events.length,
+          })}
         </span>
-        <button class="new-event" @click=${this._onNewEvent}>＋ Neues Event</button>
+        <button class="new-event" @click=${this._onNewEvent}>
+          ${t("panel.newEvent")}
+        </button>
       </header>
       <chronotope-filter-bar
         .state=${this._filters}
@@ -291,7 +299,7 @@ class ChronotopePanel extends LitElement {
     if (!zones.some((zone) => zone.home) && this.hass?.config?.latitude != null) {
       zones.push({
         id: "home",
-        name: "Zuhause",
+        name: t("panel.home"),
         lat: this.hass.config.latitude,
         lon: this.hass.config.longitude,
         radius: 100,
@@ -399,7 +407,7 @@ class ChronotopePanel extends LitElement {
         this._selectedId = null;
       }
     } catch (err) {
-      this._error = `Abfrage fehlgeschlagen: ${err.message || err.code || err}`;
+      this._error = t("error.query", { msg: err.message || err.code || err });
     }
   }
 
@@ -443,7 +451,7 @@ class ChronotopePanel extends LitElement {
       this._selectedProfileId = result.profile.id;
       this._error = null;
     } catch (err) {
-      this._error = `Profil speichern fehlgeschlagen: ${err.message || err.code || err}`;
+      this._error = t("error.profileSave", { msg: err.message || err.code || err });
     }
   }
 
@@ -453,7 +461,7 @@ class ChronotopePanel extends LitElement {
       if (this._selectedProfileId === ev.detail.id) this._selectedProfileId = "";
       await this._loadProfiles();
     } catch (err) {
-      this._error = `Profil löschen fehlgeschlagen: ${err.message || err.code || err}`;
+      this._error = t("error.profileDelete", { msg: err.message || err.code || err });
     }
   }
 
@@ -491,7 +499,7 @@ class ChronotopePanel extends LitElement {
       await this._runQuery();
       await this._loadCategories();
     } catch (err) {
-      this._error = `Speichern fehlgeschlagen: ${err.message || err.code || err}`;
+      this._error = t("error.save", { msg: err.message || err.code || err });
     }
   }
 
@@ -502,7 +510,7 @@ class ChronotopePanel extends LitElement {
       this._capture = null;
       await this._runQuery();
     } catch (err) {
-      this._error = `Löschen fehlgeschlagen: ${err.message || err.code || err}`;
+      this._error = t("error.delete", { msg: err.message || err.code || err });
     }
   }
 
@@ -529,7 +537,7 @@ class ChronotopePanel extends LitElement {
       ring.push(ring[0]);
       this._editorElement()?.setGeometry({ type: "Polygon", coordinates: [ring] });
     } else {
-      this._error = "Zu wenige Punkte für die Zeichnung.";
+      this._error = t("error.capture");
       return;
     }
     this._capture = null;
@@ -544,7 +552,7 @@ class ChronotopePanel extends LitElement {
       await flagEvent(this.hass, id, flags);
       await this._runQuery();
     } catch (err) {
-      this._error = `Aktion fehlgeschlagen: ${err.message || err.code || err}`;
+      this._error = t("error.action", { msg: err.message || err.code || err });
     }
   }
 
@@ -562,7 +570,7 @@ class ChronotopePanel extends LitElement {
         this._icsCopied = false;
       }, 3000);
     } catch (err) {
-      this._error = `ICS-URL konnte nicht kopiert werden: ${err.message || err.code || err}`;
+      this._error = t("error.ics", { msg: err.message || err.code || err });
     }
   }
 }

@@ -34,4 +34,4 @@ EVENT_PROFILES_CHANGED = "chronotope_profiles_changed"
 
 # Pseudo profile for "all events" calendar/sensor entities.
 PROFILE_ALL_ID = "__all__"
-PROFILE_ALL_NAME = "Alle Events"
+PROFILE_ALL_NAME = "All events"

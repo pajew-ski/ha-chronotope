@@ -1,6 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
-
-const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+import { t } from "./i18n.js";
 
 /**
  * Filter controls. Receives the panel's filter state and the available
@@ -141,7 +140,7 @@ class ChronotopeFilterBar extends LitElement {
     return html`
       <div class="groups">
         <div class="group">
-          <span class="label">Profil</span>
+          <span class="label">${t("profile.label")}</span>
           <div class="row">
             <select
               .value=${this.selectedProfileId || ""}
@@ -150,7 +149,7 @@ class ChronotopeFilterBar extends LitElement {
                   new CustomEvent("profile-selected", { detail: { id: ev.target.value } })
                 )}
             >
-              <option value="">— kein Profil —</option>
+              <option value="">${t("profile.none")}</option>
               ${(this.profiles || []).map(
                 (profile) => html`
                   <option value=${profile.id} ?selected=${profile.id === this.selectedProfileId}>
@@ -161,21 +160,21 @@ class ChronotopeFilterBar extends LitElement {
             </select>
             <input
               type="text"
-              placeholder="Profilname"
+              placeholder=${t("profile.placeholder")}
               .value=${this._profileName}
               @input=${(ev) => (this._profileName = ev.target.value)}
             />
             <button
               class="ics-button"
-              title="Aktuelle Filter unter diesem Namen speichern"
+              title=${t("profile.save.title")}
               @click=${this._saveProfile}
             >
-              Speichern
+              ${t("profile.save")}
             </button>
             ${this.selectedProfileId
               ? html`<button
                   class="ics-button"
-                  title="Ausgewähltes Profil löschen"
+                  title=${t("profile.delete.title")}
                   @click=${() =>
                     this.dispatchEvent(
                       new CustomEvent("profile-delete", {
@@ -183,18 +182,18 @@ class ChronotopeFilterBar extends LitElement {
                       })
                     )}
                 >
-                  Löschen
+                  ${t("profile.delete")}
                 </button>`
               : nothing}
           </div>
         </div>
 
         <div class="group">
-          <span class="label">Suche</span>
+          <span class="label">${t("search.label")}</span>
           <div class="row">
             <input
               type="text"
-              placeholder="Titel, Beschreibung, Adresse…"
+              placeholder=${t("search.placeholder")}
               .value=${s.text || ""}
               @input=${(ev) => this._patch({ text: ev.target.value })}
             />
@@ -204,16 +203,16 @@ class ChronotopeFilterBar extends LitElement {
                 .checked=${s.favoritesOnly}
                 @change=${(ev) => this._patch({ favoritesOnly: ev.target.checked })}
               />
-              nur ★
+              ${t("search.favorites")}
             </label>
           </div>
         </div>
 
         <div class="group">
-          <span class="label">Kategorie</span>
+          <span class="label">${t("category.label")}</span>
           <div class="chips">
             ${(this.categories || []).length === 0
-              ? html`<span class="hint">Noch keine Kategorien</span>`
+              ? html`<span class="hint">${t("category.none")}</span>`
               : (this.categories || []).map(
                   (cat) => html`
                     <button
@@ -229,7 +228,7 @@ class ChronotopeFilterBar extends LitElement {
         </div>
 
         <div class="group">
-          <span class="label">Radius</span>
+          <span class="label">${t("radius.label")}</span>
           <div class="row">
             <input
               type="checkbox"
@@ -248,11 +247,11 @@ class ChronotopeFilterBar extends LitElement {
             />
             <span>${s.radiusKm} km</span>
           </div>
-          <span class="hint">Klick auf die Karte setzt das Zentrum</span>
+          <span class="hint">${t("radius.hint")}</span>
         </div>
 
         <div class="group">
-          <span class="label">Zeitfenster</span>
+          <span class="label">${t("window.label")}</span>
           <div class="row">
             <input
               type="datetime-local"
@@ -270,9 +269,9 @@ class ChronotopeFilterBar extends LitElement {
         </div>
 
         <div class="group">
-          <span class="label">Wochentage</span>
+          <span class="label">${t("weekdays.label")}</span>
           <div class="chips">
-            ${WEEKDAYS.map(
+            ${t("weekdays.short").map(
               (name, index) => html`
                 <button
                   class="chip"
@@ -289,8 +288,8 @@ class ChronotopeFilterBar extends LitElement {
               .value=${s.timeMode}
               @change=${(ev) => this._patch({ timeMode: ev.target.value })}
             >
-              <option value="allday">Ganztags</option>
-              <option value="range">Nach Uhrzeit</option>
+              <option value="allday">${t("time.allday")}</option>
+              <option value="range">${t("time.range")}</option>
             </select>
             ${s.timeMode === "range"
               ? html`
@@ -311,14 +310,14 @@ class ChronotopeFilterBar extends LitElement {
         </div>
 
         <div class="group">
-          <span class="label">Karte</span>
+          <span class="label">${t("map.label")}</span>
           <label class="row">
             <input
               type="checkbox"
               .checked=${s.showZones}
               @change=${(ev) => this._patch({ showZones: ev.target.checked })}
             />
-            HA-Zonen
+            ${t("map.zones")}
           </label>
           <label class="row">
             <input
@@ -326,7 +325,7 @@ class ChronotopeFilterBar extends LitElement {
               .checked=${s.showPersons}
               @change=${(ev) => this._patch({ showPersons: ev.target.checked })}
             />
-            Personen
+            ${t("map.persons")}
           </label>
           <label class="row">
             <input
@@ -334,17 +333,17 @@ class ChronotopeFilterBar extends LitElement {
               .checked=${s.showGeoFeeds}
               @change=${(ev) => this._patch({ showGeoFeeds: ev.target.checked })}
             />
-            Geo-Feeds
+            ${t("map.geofeeds")}
           </label>
         </div>
 
         <div class="group">
-          <span class="label">Export</span>
+          <span class="label">${t("export.label")}</span>
           <button
             class="ics-button"
             @click=${() => this.dispatchEvent(new CustomEvent("ics-requested"))}
           >
-            ${this.icsCopied ? "URL kopiert ✓" : "ICS-Abo-URL kopieren"}
+            ${this.icsCopied ? t("export.copied") : t("export.copy")}
           </button>
           ${this._renderStats()}
         </div>
@@ -359,17 +358,18 @@ class ChronotopeFilterBar extends LitElement {
       <details class="stats" @toggle=${(ev) => {
         if (ev.target.open) this.dispatchEvent(new CustomEvent("stats-requested"));
       }}>
-        <summary>Statistik (${stats.total_events} Events)</summary>
+        <summary>${t("stats.summary", { n: stats.total_events })}</summary>
         <table>
-          <tr><td>Orte im Cache</td><td>${stats.places}</td></tr>
-          <tr><td>Profile</td><td>${stats.profiles}</td></tr>
+          <tr><td>${t("stats.places")}</td><td>${stats.places}</td></tr>
+          <tr><td>${t("stats.profiles")}</td><td>${stats.profiles}</td></tr>
           ${(stats.sources || []).map(
             (source) => html`
               <tr>
                 <td>${source.source}</td>
                 <td>
-                  ${source.events} Events${source.last_scraped
-                    ? html`, zuletzt ${new Date(source.last_scraped).toLocaleDateString()}`
+                  ${source.events} ${t("stats.events")}${source.last_scraped
+                    ? html`, ${t("stats.last")}
+                      ${new Date(source.last_scraped).toLocaleDateString()}`
                     : nothing}
                 </td>
               </tr>
@@ -414,7 +414,7 @@ class ChronotopeFilterBar extends LitElement {
           day: "2-digit",
           month: "2-digit",
         })
-      : "Alle Tage";
+      : t("window.allDays");
     return html`
       <div class="row">
         <input

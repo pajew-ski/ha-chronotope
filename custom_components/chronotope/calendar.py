@@ -28,7 +28,7 @@ def _to_calendar_events(events: list[dict[str, Any]]) -> list[CalendarEvent]:
         summary = f"~ {event['title']}" if fuzzy else event["title"]
         description_parts = []
         if fuzzy and event.get("schedule_text"):
-            description_parts.append(f"Zeitangabe: {event['schedule_text']}")
+            description_parts.append(f"Schedule: {event['schedule_text']}")
         if event.get("raw_description"):
             description_parts.append(event["raw_description"])
         if event.get("source_url"):
