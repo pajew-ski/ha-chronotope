@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Chronotope",
+        "description": "Chronotope Geo-Zeit-Event-Engine einrichten. Ein Karten-Panel wird zur Seitenleiste hinzugefügt."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Bereits konfiguriert. Nur eine Instanz ist möglich."
+    }
+  }
+}

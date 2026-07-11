@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Chronotope",
+        "description": "Set up the Chronotope geo-time event engine. A map panel is added to the sidebar."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single instance is possible."
+    }
+  }
+}
