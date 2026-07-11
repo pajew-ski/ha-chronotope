@@ -1,7 +1,7 @@
 # Chronotope
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
-[![License pending](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **A domain-open geo-time event engine for Home Assistant** — grown into a
 personal intelligence application. Chronotope collects *events* (anything
@@ -400,4 +400,4 @@ internal engineering doc of this repository).
 
 ## License
 
-No license file yet — if you plan to redistribute, open an issue first.
+[MIT](LICENSE) — use it, fork it, build on it.
