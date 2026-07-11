@@ -96,9 +96,9 @@ After setup you will find:
 
 1. **Open the panel** from the sidebar. The map centers on your home
    coordinates; your HA zones and people are already visible as layers.
-2. **Create your first event**: click **＋ New event**, give it a title,
+2. **Create your first event**: click **+ New event**, give it a title,
    category (free text — categories emerge from usage), start/end. Type an
-   address, or click **📍 Pick point on map** and click the map. Save.
+   address, or click **Pick point on map** and click the map. Save.
 3. **Filter**: use the filter bar — category chips, a radius slider
    (click the map to move the center), a time window with a day-by-day
    slider, weekday chips (all-day or by time of day), text search.
@@ -114,14 +114,14 @@ After setup you will find:
 - **Events** render as clustered circle markers; events with a `geometry`
   field (GeoJSON) render as lines/polygons. Fuzzy-schedule events are
   dashed and show their schedule wording instead of fabricated dates.
-- **Layers** (toggleable in the filter bar): HA zones incl. home 🏠,
+- **Layers** (toggleable in the filter bar): HA zones incl. home,
   people (live positions with their profile picture), and
   `geo_location.*` feed entities (diamond markers with source and
   distance). Note: HA *areas* have no coordinates in Home Assistant, so
   they cannot be drawn — zones are the geo-capable concept.
 - **Result list**: sorted by distance when a radius center is set,
-  otherwise by start time. Each entry offers ★ favorite, ✏️ edit,
-  🙈 hide, the source link, a "✓ visited" badge fed by the visit
+  otherwise by start time. Each entry offers favorite, edit and hide
+  buttons, the source link, a "visited" badge fed by the visit
   history, and the next matched occurrence for recurring events.
 - **Editor**: create/edit/delete events, capture a point by clicking the
   map, or record lines/areas click by click with a live preview. Popups

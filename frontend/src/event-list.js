@@ -1,5 +1,12 @@
 import { LitElement, html, css, nothing } from "lit";
 import { t } from "./i18n.js";
+import {
+  ICON_EYE_OFF,
+  ICON_PENCIL,
+  ICON_REPEAT,
+  ICON_STAR,
+  ICON_STAR_OUTLINE,
+} from "./icons.js";
 
 /**
  * Distance-sorted result list (sorting happens server-side). Emits
@@ -107,6 +114,12 @@ class ChronotopeEventList extends LitElement {
       color: var(--secondary-text-color, #727272);
       line-height: 1;
     }
+    .icon {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+      vertical-align: -3px;
+    }
     .icon-btn.starred {
       color: var(--warning-color, #ff9800);
     }
@@ -144,7 +157,7 @@ class ChronotopeEventList extends LitElement {
               title=${event.favorite ? t("list.favorite.remove") : t("list.favorite.add")}
               @click=${(ev) => this._flag(ev, event, { favorite: !event.favorite })}
             >
-              ${event.favorite ? "★" : "☆"}
+              ${event.favorite ? ICON_STAR : ICON_STAR_OUTLINE}
             </button>
             <button
               class="icon-btn"
@@ -156,20 +169,22 @@ class ChronotopeEventList extends LitElement {
                 );
               }}
             >
-              ✏️
+              ${ICON_PENCIL}
             </button>
             <button
               class="icon-btn"
               title=${t("list.hide")}
               @click=${(ev) => this._flag(ev, event, { hidden: true })}
             >
-              🙈
+              ${ICON_EYE_OFF}
             </button>
           </span>
         </div>
         <div class="meta">
           ${this._renderWhen(event, start, end)}
-          ${event.recurrence ? html`<span title=${event.recurrence}>🔁</span>` : nothing}
+          ${event.recurrence
+            ? html`<span title=${event.recurrence}>${ICON_REPEAT}</span>`
+            : nothing}
           ${event.category ? html`<span class="badge">${event.category}</span>` : nothing}
           ${event.confidence
             ? html`<span class="badge confidence-${event.confidence}">${event.confidence}</span>`

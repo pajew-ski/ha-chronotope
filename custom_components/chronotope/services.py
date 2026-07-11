@@ -324,10 +324,10 @@ def async_register_services(hass: HomeAssistant) -> None:
             if extras:
                 parts.append(f"({', '.join(extras)})")
             if event.get("favorite"):
-                parts.append("★")
+                parts.append("*")
             if check_calendars:
                 parts.append(strings["busy"] if conflict else strings["free"])
-            lines.append("• " + " ".join(parts))
+            lines.append("- " + " ".join(parts))
             items.append(
                 {**event, "digest_start": occ_start, "conflict": conflict}
             )

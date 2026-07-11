@@ -5,6 +5,7 @@ import L from "leaflet";
 import "leaflet.markercluster";
 import leafletCss from "leaflet/dist/leaflet.css";
 import { t } from "./i18n.js";
+import { HOME_ICON_SVG } from "./icons.js";
 import clusterCss from "leaflet.markercluster/dist/MarkerCluster.css";
 import clusterDefaultCss from "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
@@ -86,9 +87,12 @@ class ChronotopeMapView extends LitElement {
       .zone-home-icon {
         background: none;
         border: none;
-        font-size: 18px;
-        line-height: 24px;
-        text-align: center;
+      }
+      .zone-home-icon svg {
+        width: 100%;
+        height: 100%;
+        fill: var(--accent-color, #ff9800);
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
       }
       .person-icon {
         border-radius: 50%;
@@ -279,7 +283,7 @@ class ChronotopeMapView extends LitElement {
     const div = document.createElement("div");
     const title = document.createElement("div");
     title.className = "popup-title";
-    title.textContent = `${event.favorite ? "★ " : ""}${event.title}`;
+    title.textContent = event.title;
     const meta = document.createElement("div");
     meta.className = "popup-meta";
     const start = event.occurrences?.[0]?.[0] ?? event.start_time;
@@ -351,7 +355,7 @@ class ChronotopeMapView extends LitElement {
         L.marker([zone.lat, zone.lon], {
           icon: L.divIcon({
             className: "zone-home-icon",
-            html: "🏠",
+            html: HOME_ICON_SVG,
             iconSize: [24, 24],
             iconAnchor: [12, 12],
           }),
