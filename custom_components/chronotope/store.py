@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import sqlite3
 import threading
 import uuid
@@ -24,6 +25,7 @@ from dateutil.rrule import rrulestr
 _LOGGER = logging.getLogger(__name__)
 
 CONFIDENCE_VALUES = ("verified", "scraped", "inferred")
+TIME_PRECISION_VALUES = ("exact", "approximate")
 
 # Safety caps for recurrence expansion.
 _MAX_OCCURRENCES = 366
@@ -45,12 +47,26 @@ CREATE TABLE IF NOT EXISTS events (
     confidence TEXT,
     scraped_at TEXT,
     raw_description TEXT,
-    geometry TEXT
+    geometry TEXT,
+    address TEXT,
+    time_precision TEXT,
+    schedule_text TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
 CREATE INDEX IF NOT EXISTS idx_events_start ON events (start_time);
 CREATE INDEX IF NOT EXISTS idx_events_end ON events (end_time);
+CREATE TABLE IF NOT EXISTS places (
+    address_key TEXT PRIMARY KEY,
+    address TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
+
+# Columns added after the initial release; existing databases are upgraded
+# in-place via ALTER TABLE.
+_MIGRATED_COLUMNS = ("address", "time_precision", "schedule_text")
 
 _COLUMNS = (
     "id",
@@ -67,7 +83,16 @@ _COLUMNS = (
     "scraped_at",
     "raw_description",
     "geometry",
+    "address",
+    "time_precision",
+    "schedule_text",
 )
+
+
+def _address_key(address: str) -> str:
+    """Normalize an address for cache lookups: casefold, strip punctuation."""
+    cleaned = re.sub(r"[^\w\s]", "", address.casefold(), flags=re.UNICODE)
+    return " ".join(cleaned.split())
 
 
 def haversine_km(
@@ -133,6 +158,12 @@ class EventStore:
         self._conn.create_function("haversine_km", 4, haversine_km, deterministic=True)
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
+            existing = {
+                row[1] for row in self._conn.execute("PRAGMA table_info(events)")
+            }
+            for column in _MIGRATED_COLUMNS:
+                if column not in existing:
+                    self._conn.execute(f"ALTER TABLE events ADD COLUMN {column} TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -141,11 +172,29 @@ class EventStore:
     # ------------------------------------------------------------------ write
 
     def save_event(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Insert or replace an event; returns the stored representation."""
+        """Insert or replace an event; returns the stored representation.
+
+        Address/geo cache: an event carrying both address and coordinates
+        teaches the places table; an event carrying only an address gets its
+        coordinates filled in from the cache when the address is known.
+        """
         event = self._validate(data)
         columns = ", ".join(_COLUMNS)
         placeholders = ", ".join(f":{col}" for col in _COLUMNS)
         with self._lock, self._conn:
+            if event["address"]:
+                if event["lat"] is None:
+                    row = self._conn.execute(
+                        "SELECT lat, lon FROM places WHERE address_key = ?",
+                        (_address_key(event["address"]),),
+                    ).fetchone()
+                    if row:
+                        event["lat"] = row["lat"]
+                        event["lon"] = row["lon"]
+                else:
+                    self._upsert_place_locked(
+                        event["address"], event["lat"], event["lon"]
+                    )
             self._conn.execute(
                 f"INSERT OR REPLACE INTO events ({columns}) VALUES ({placeholders})",
                 event,
@@ -165,6 +214,48 @@ class EventStore:
                 "SELECT * FROM events WHERE id = ?", (event_id,)
             ).fetchone()
         return dict(row) if row else None
+
+    def lookup_place(self, address: str) -> dict[str, Any] | None:
+        """Look up cached coordinates for an address (normalized match)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT address, lat, lon, updated_at FROM places WHERE address_key = ?",
+                (_address_key(address),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_place(self, address: str, lat: float, lon: float) -> dict[str, Any]:
+        """Explicitly cache coordinates for an address."""
+        if not address or not str(address).strip():
+            raise ValueError("address is required")
+        lat, lon = float(lat), float(lon)
+        if not -90 <= lat <= 90:
+            raise ValueError(f"lat out of range: {lat}")
+        if not -180 <= lon <= 180:
+            raise ValueError(f"lon out of range: {lon}")
+        with self._lock, self._conn:
+            self._upsert_place_locked(str(address).strip(), lat, lon)
+        return {"address": str(address).strip(), "lat": lat, "lon": lon}
+
+    def _upsert_place_locked(self, address: str, lat: float, lon: float) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO places (address_key, address, lat, lon, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(address_key) DO UPDATE SET
+                address = excluded.address,
+                lat = excluded.lat,
+                lon = excluded.lon,
+                updated_at = excluded.updated_at
+            """,
+            (
+                _address_key(address),
+                address,
+                lat,
+                lon,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
 
     def categories(self) -> list[str]:
         with self._lock:
@@ -270,8 +361,11 @@ class EventStore:
 
         rule = None
         if event.get("recurrence"):
+            # Expand in the query timezone so clock-based rule parts
+            # (BYHOUR, BYDAY, ...) mean local wall-clock time and stay
+            # stable across DST transitions.
             try:
-                rule = rrulestr(event["recurrence"], dtstart=start)
+                rule = rrulestr(event["recurrence"], dtstart=start.astimezone(tz))
             except (ValueError, TypeError) as err:
                 _LOGGER.warning(
                     "Event %s has unparseable RRULE %r (%s); treating as single event",
@@ -310,7 +404,12 @@ class EventStore:
                 occ_start, occ_end, weekdays, time_from, time_to, tz
             ):
                 continue
-            matched.append([occ_start.isoformat(), occ_end.isoformat()])
+            matched.append(
+                [
+                    occ_start.astimezone(timezone.utc).isoformat(),
+                    occ_end.astimezone(timezone.utc).isoformat(),
+                ]
+            )
             if len(matched) >= _MAX_RETURNED_OCCURRENCES:
                 break
 
@@ -359,6 +458,18 @@ class EventStore:
                 f"confidence must be one of {CONFIDENCE_VALUES}, got {event['confidence']!r}"
             )
 
+        if (
+            event["time_precision"] is not None
+            and event["time_precision"] not in TIME_PRECISION_VALUES
+        ):
+            raise ValueError(
+                f"time_precision must be one of {TIME_PRECISION_VALUES}, "
+                f"got {event['time_precision']!r}"
+            )
+
+        if event["address"] is not None:
+            event["address"] = str(event["address"]).strip() or None
+
         if event["scraped_at"]:
             event["scraped_at"] = _to_utc_iso(event["scraped_at"], "scraped_at")
         else:
@@ -374,7 +485,7 @@ class EventStore:
                     raise ValueError("geometry must be valid GeoJSON") from err
                 event["geometry"] = str(event["geometry"])
 
-        for field in ("source_url", "source_name", "raw_description"):
+        for field in ("source_url", "source_name", "raw_description", "schedule_text"):
             if event[field] is not None:
                 event[field] = str(event[field])
 

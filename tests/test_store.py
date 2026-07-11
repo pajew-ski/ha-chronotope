@@ -1,6 +1,8 @@
 """Tests for the HA-free SQLite store."""
 
+import sqlite3
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -238,6 +240,148 @@ class StoreTestCase(unittest.TestCase):
         self.assertIn("LineString", stored["geometry"])
         with self.assertRaises(ValueError):
             self.store.save_event(make_event(geometry="{not json"))
+
+    def test_address_teaches_place_cache(self):
+        self.store.save_event(
+            make_event(address="Boxhagener Platz 1, 10245 Berlin")
+        )
+        place = self.store.lookup_place("boxhagener platz 1  10245 berlin")
+        self.assertIsNotNone(place)
+        self.assertAlmostEqual(place["lat"], BERLIN["lat"])
+        self.assertAlmostEqual(place["lon"], BERLIN["lon"])
+
+    def test_address_fills_missing_coords_from_cache(self):
+        self.store.save_event(make_event(address="Boxhagener Platz 1, 10245 Berlin"))
+        saved = self.store.save_event(
+            make_event(
+                title="Later event, same place",
+                address="Boxhagener Platz 1, 10245 Berlin",
+                lat=None,
+                lon=None,
+            )
+        )
+        self.assertAlmostEqual(saved["lat"], BERLIN["lat"])
+        self.assertAlmostEqual(saved["lon"], BERLIN["lon"])
+        stored = self.store.get_event(saved["id"])
+        self.assertAlmostEqual(stored["lat"], BERLIN["lat"])
+
+    def test_unknown_address_leaves_coords_empty(self):
+        saved = self.store.save_event(
+            make_event(title="No coords", address="Nirgendwo 1", lat=None, lon=None)
+        )
+        self.assertIsNone(saved["lat"])
+        self.assertIsNone(self.store.lookup_place("Nirgendwo 1"))
+
+    def test_save_place_directly(self):
+        self.store.save_place("Rathausplatz 5", 50.0, 8.0)
+        place = self.store.lookup_place("RATHAUSPLATZ 5")
+        self.assertEqual(place["lat"], 50.0)
+        with self.assertRaises(ValueError):
+            self.store.save_place("", 50.0, 8.0)
+        with self.assertRaises(ValueError):
+            self.store.save_place("X", 999.0, 8.0)
+
+    def test_time_precision_validation(self):
+        with self.assertRaises(ValueError):
+            self.store.save_event(make_event(time_precision="fuzzy"))
+        saved = self.store.save_event(
+            make_event(
+                time_precision="approximate",
+                schedule_text="mittwochs 18 Uhr, ca. 2x im Monat",
+                recurrence="FREQ=WEEKLY;BYDAY=WE",
+            )
+        )
+        stored = self.store.get_event(saved["id"])
+        self.assertEqual(stored["time_precision"], "approximate")
+        self.assertEqual(stored["schedule_text"], "mittwochs 18 Uhr, ca. 2x im Monat")
+
+    def test_alternative_hours_via_byhour(self):
+        # "Every Tuesday and Thursday at 18:00 or 20:00" as a single RRULE.
+        self.store.save_event(
+            make_event(
+                title="TuTh 18/20",
+                start_time="2026-07-14T18:00:00+00:00",
+                end_time="2026-07-14T19:00:00+00:00",
+                recurrence="FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=18,20",
+                time_precision="approximate",
+            )
+        )
+        results = self.store.query_events(
+            QueryFilter(
+                window_start="2026-07-14T00:00:00+00:00",
+                window_end="2026-07-21T00:00:00+00:00",
+            )
+        )
+        self.assertEqual(len(results), 1)
+        starts = [occ[0] for occ in results[0]["occurrences"]]
+        self.assertEqual(
+            starts,
+            [
+                "2026-07-14T18:00:00+00:00",
+                "2026-07-14T20:00:00+00:00",
+                "2026-07-16T18:00:00+00:00",
+                "2026-07-16T20:00:00+00:00",
+            ],
+        )
+
+    def test_recurrence_expands_in_local_wall_clock_across_dst(self):
+        # Weekly Tuesday 18:00 Berlin time, anchored in July (CEST, UTC+2).
+        # In November (CET, UTC+1) the occurrence must still be 18:00 local,
+        # i.e. 17:00 UTC — not a fixed 16:00 UTC.
+        self.store.save_event(
+            make_event(
+                title="Weekly local",
+                start_time="2026-07-14T18:00:00+02:00",
+                end_time="2026-07-14T19:00:00+02:00",
+                recurrence="FREQ=WEEKLY;BYDAY=TU",
+            )
+        )
+        results = self.store.query_events(
+            QueryFilter(
+                window_start="2026-11-03T00:00:00+00:00",
+                window_end="2026-11-04T00:00:00+00:00",
+                tz_name="Europe/Berlin",
+            )
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(
+            results[0]["occurrences"][0][0], "2026-11-03T17:00:00+00:00"
+        )
+
+    def test_migration_adds_new_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = str(Path(tmp) / "old.db")
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                CREATE TABLE events (
+                    id TEXT PRIMARY KEY, title TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT '', lat REAL, lon REAL,
+                    start_time TEXT NOT NULL, end_time TEXT NOT NULL,
+                    recurrence TEXT, source_url TEXT, source_name TEXT,
+                    confidence TEXT, scraped_at TEXT, raw_description TEXT,
+                    geometry TEXT
+                );
+                INSERT INTO events (id, title, start_time, end_time)
+                VALUES ('old1', 'Old event',
+                        '2026-07-11T08:00:00+00:00', '2026-07-11T12:00:00+00:00');
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            migrated = EventStore(db_path)
+            try:
+                old = migrated.get_event("old1")
+                self.assertIsNone(old["address"])
+                saved = migrated.save_event(
+                    make_event(address="Neue Str. 1", time_precision="approximate")
+                )
+                self.assertEqual(
+                    migrated.get_event(saved["id"])["address"], "Neue Str. 1"
+                )
+            finally:
+                migrated.close()
 
     def test_haversine_known_distance(self):
         # Berlin -> Munich is roughly 504 km.

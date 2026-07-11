@@ -95,6 +95,23 @@ class IcsTestCase(unittest.TestCase):
         self.assertNotIn("DESCRIPTION", ics)
         self.assertNotIn("X-CHRONOTOPE-CONFIDENCE", ics)
 
+    def test_address_and_fuzzy_schedule(self):
+        event = make_event(
+            address="Boxhagener Platz 1, 10245 Berlin",
+            time_precision="approximate",
+            schedule_text="mittwochs 18 Uhr, ca. 2x im Monat",
+            raw_description=None,
+        )
+        ics = events_to_ics([event], now=NOW)
+        self.assertIn("LOCATION:Boxhagener Platz 1\\, 10245 Berlin", ics)
+        self.assertIn("X-CHRONOTOPE-TIME-PRECISION:approximate", ics)
+        unfolded = ics.replace("\r\n ", "")
+        self.assertIn("DESCRIPTION:Schedule: mittwochs 18 Uhr\\, ca. 2x im Monat", unfolded)
+
+    def test_exact_precision_omits_xprop(self):
+        ics = events_to_ics([make_event(time_precision="exact")], now=NOW)
+        self.assertNotIn("X-CHRONOTOPE-TIME-PRECISION", ics)
+
     def test_empty_calendar_is_valid(self):
         ics = events_to_ics([], now=NOW)
         self.assertIn("BEGIN:VCALENDAR", ics)

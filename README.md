@@ -6,14 +6,26 @@ der Kern bleibt domänenneutral.
 
 ## Features
 
-- **SQLite-Store** für Events mit Titel, Kategorie, Koordinate, Zeitspanne,
-  optionaler RRULE-Wiederholung, Quelle, Konfidenz und optionalem GeoJSON.
+- **SQLite-Store** für Events mit Titel, Kategorie, Koordinate, Adresse,
+  Zeitspanne, optionaler RRULE-Wiederholung, Quelle, Konfidenz und
+  optionalem GeoJSON (Linien/Flächen).
+- **Adress-Geo-Cache**: Ein Event mit Adresse und Koordinaten lehrt den
+  Cache; künftige Events an derselben Adresse bekommen ihre Koordinaten
+  automatisch — Adressen müssen nur einmal geocodiert werden
+  (`chronotope/places/lookup` für Scraper).
+- **Unscharfe Termine**: „mittwochs 18 Uhr, ca. 2× im Monat" oder „Di+Do
+  um 18 oder 20 Uhr" werden als Best-Effort-RRULE gefiltert
+  (`FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=18,20`) und mit
+  `time_precision: approximate` + `schedule_text` in UI und ICS als
+  ungefähr gekennzeichnet (gestrichelte Marker, „~"-Anzeige).
 - **WebSocket-API**: Events schreiben, löschen und gefiltert abfragen —
   Kategorie, Radius um einen Punkt (Haversine), Zeitfenster-Überlappung und
   Wochentag-/Uhrzeit-Maske beliebig kombinierbar.
 - **Custom Panel** (Lit 3, alles vendored, kein CDN): Leaflet-Karte mit
   OpenStreetMap-Tiles, Light-/Darkmode entlang des HA-Themes, Marker und
   GeoJSON-Layer, Filter-UI, Ergebnisliste nach Distanz sortiert.
+  HA-Zonen (inkl. Zuhause) als zuschaltbarer Karten-Layer. Hinweis:
+  HA-Areas/Bereiche haben keine Koordinaten — geo-fähig sind nur Zonen.
 - **ICS-Export**: `GET /api/chronotope/calendar.ics?token=…` liefert die
   gefilterten Events als RFC-5545-Kalender, abonnierbar von Kalender-Clients
   (z. B. HA Remote Calendar, Thunderbird, CalDAV-Apps). Die Abo-URL inkl.
@@ -57,6 +69,22 @@ der Kern bleibt domänenneutral.
 // Kategorien & ICS-Abo-URL
 { "type": "chronotope/categories" }
 { "type": "chronotope/ics_url", "categories": ["market"] }
+
+// Adress-Geo-Cache: bekannte Koordinaten zu einer Adresse abfragen
+{ "type": "chronotope/places/lookup", "address": "Boxhagener Platz 1, 10245 Berlin" }
+
+// Unscharfer Termin: „Di+Do um 18 oder 20 Uhr" — Best-Effort-RRULE
+// plus Kennzeichnung; Adresse ohne Koordinaten wird aus dem Cache gefüllt
+{ "type": "chronotope/events/save", "event": {
+    "title": "Lauftreff",
+    "category": "sport",
+    "address": "Boxhagener Platz 1, 10245 Berlin",
+    "start_time": "2026-07-14T18:00:00+02:00",
+    "end_time": "2026-07-14T19:30:00+02:00",
+    "recurrence": "FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=18,20;BYMINUTE=0",
+    "time_precision": "approximate",
+    "schedule_text": "jeden Di und Do um 18 oder 20 Uhr"
+} }
 ```
 
 Antworten enthalten `distance_km` (bei Center) und für wiederkehrende Events

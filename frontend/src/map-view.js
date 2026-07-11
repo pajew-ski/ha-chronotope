@@ -14,6 +14,7 @@ class ChronotopeMapView extends LitElement {
     center: { attribute: false },
     radiusKm: { attribute: false },
     radiusEnabled: { attribute: false },
+    zones: { attribute: false },
     selectedId: { attribute: false },
     dark: { type: Boolean, reflect: true },
   };
@@ -62,6 +63,13 @@ class ChronotopeMapView extends LitElement {
         color: var(--secondary-text-color, #727272);
         font-size: 0.85em;
       }
+      .zone-home-icon {
+        background: none;
+        border: none;
+        font-size: 18px;
+        line-height: 24px;
+        text-align: center;
+      }
     `,
   ];
 
@@ -70,9 +78,11 @@ class ChronotopeMapView extends LitElement {
     this.events = [];
     this.radiusKm = 10;
     this.radiusEnabled = false;
+    this.zones = [];
     this.dark = false;
     this._markersById = new Map();
     this._didInitialFit = false;
+    this._zonesSignature = "";
   }
 
   render() {
@@ -90,6 +100,7 @@ class ChronotopeMapView extends LitElement {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(this._map);
+    this._zoneLayer = L.layerGroup().addTo(this._map);
     this._eventLayer = L.featureGroup().addTo(this._map);
     this._radiusLayer = L.layerGroup().addTo(this._map);
     this._map.on("click", (ev) => {
@@ -103,6 +114,7 @@ class ChronotopeMapView extends LitElement {
     this._resizeObserver.observe(this);
     this._renderEvents();
     this._renderRadius();
+    this._renderZones();
   }
 
   disconnectedCallback() {
@@ -118,6 +130,7 @@ class ChronotopeMapView extends LitElement {
     if (changed.has("center") || changed.has("radiusKm") || changed.has("radiusEnabled")) {
       this._renderRadius();
     }
+    if (changed.has("zones")) this._renderZones();
     if (changed.has("selectedId") && this.selectedId) {
       this._focusEvent(this.selectedId);
     }
@@ -137,16 +150,16 @@ class ChronotopeMapView extends LitElement {
       if (event.geometry) {
         try {
           layer = L.geoJSON(JSON.parse(event.geometry), {
-            style: { color: accent, weight: 3, fillOpacity: 0.2 },
+            style: this._shapeStyle(accent, event),
             pointToLayer: (_feature, latlng) =>
-              L.circleMarker(latlng, this._markerStyle(accent)),
+              L.circleMarker(latlng, this._markerStyle(accent, event)),
           });
         } catch (err) {
           console.warn("chronotope: invalid geometry for event", event.id, err);
         }
       }
       if (!layer && event.lat != null && event.lon != null) {
-        layer = L.circleMarker([event.lat, event.lon], this._markerStyle(accent));
+        layer = L.circleMarker([event.lat, event.lon], this._markerStyle(accent, event));
       }
       if (!layer) continue;
 
@@ -164,13 +177,24 @@ class ChronotopeMapView extends LitElement {
     }
   }
 
-  _markerStyle(accent) {
+  _markerStyle(accent, event) {
     return {
       radius: 9,
       color: accent,
       weight: 2,
       fillColor: accent,
       fillOpacity: 0.35,
+      // Fuzzy schedules get a dashed outline.
+      dashArray: event?.time_precision === "approximate" ? "3 4" : null,
+    };
+  }
+
+  _shapeStyle(accent, event) {
+    return {
+      color: accent,
+      weight: 3,
+      fillOpacity: 0.2,
+      dashArray: event?.time_precision === "approximate" ? "6 6" : null,
     };
   }
 
@@ -182,9 +206,53 @@ class ChronotopeMapView extends LitElement {
     const meta = document.createElement("div");
     meta.className = "popup-meta";
     const start = event.occurrences?.[0]?.[0] ?? event.start_time;
-    meta.textContent = `${event.category || ""} ${new Date(start).toLocaleString()}`.trim();
+    const when =
+      event.time_precision === "approximate" && event.schedule_text
+        ? `~ ${event.schedule_text}`
+        : new Date(start).toLocaleString();
+    meta.textContent = `${event.category || ""} ${when}`.trim();
     div.append(title, meta);
+    if (event.address) {
+      const address = document.createElement("div");
+      address.className = "popup-meta";
+      address.textContent = event.address;
+      div.append(address);
+    }
     return div;
+  }
+
+  _renderZones() {
+    if (!this._map) return;
+    const signature = JSON.stringify(this.zones || []);
+    if (signature === this._zonesSignature) return;
+    this._zonesSignature = signature;
+    this._zoneLayer.clearLayers();
+    const color =
+      getComputedStyle(this).getPropertyValue("--accent-color").trim() || "#ff9800";
+    for (const zone of this.zones || []) {
+      L.circle([zone.lat, zone.lon], {
+        radius: zone.radius,
+        color,
+        weight: 1.5,
+        dashArray: zone.passive ? "2 6" : "4 4",
+        fillColor: color,
+        fillOpacity: 0.06,
+      })
+        .bindTooltip(zone.name)
+        .addTo(this._zoneLayer);
+      if (zone.home) {
+        L.marker([zone.lat, zone.lon], {
+          icon: L.divIcon({
+            className: "zone-home-icon",
+            html: "🏠",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          }),
+          interactive: false,
+          keyboard: false,
+        }).addTo(this._zoneLayer);
+      }
+    }
   }
 
   _renderRadius() {

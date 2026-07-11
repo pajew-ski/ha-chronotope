@@ -15,7 +15,13 @@ Vier Teile, alle unter `custom_components/chronotope/`:
 1. **Store** (`store.py`): SQLite-Datenbank (`<config>/chronotope.db`).
    Bewusst frei von Home-Assistant-Imports, damit sie ohne HA testbar ist.
    Die HA-Schicht ruft alle Operationen über `hass.async_add_executor_job`
-   auf. Filter:
+   auf. Neben `events` gibt es eine `places`-Tabelle als Adress-Geo-Cache
+   (normalisierter Adress-Key → Lat/Lon): Ein Event mit Adresse *und*
+   Koordinaten füllt den Cache, ein Event mit Adresse *ohne* Koordinaten
+   bekommt sie beim Speichern automatisch aus dem Cache — Geocoding selbst
+   bleibt Sache der Quelle (kein externer Request im Kern). Schema-Upgrades
+   laufen beim Öffnen in-place über `ALTER TABLE` (`_MIGRATED_COLUMNS`).
+   Filter:
    - Kategorie (eine oder mehrere, exakter Match)
    - Radius um Lat/Lon-Punkt via Haversine (als SQLite-Funktion registriert)
    - Zeitfenster-Überlappung (`start < window_end AND end > window_start`)
@@ -25,7 +31,13 @@ Vier Teile, alle unter `custom_components/chronotope/`:
      HA-Zeitzone ausgewertet)
    - RRULE-Events werden mit `dateutil.rrule` expandiert (Core-Dependency
      von HA, kein eigenes Requirement) und gegen Fenster + Maske geprüft;
-     gematchte Vorkommen landen als `occurrences` in der Antwort.
+     gematchte Vorkommen landen als `occurrences` (UTC) in der Antwort.
+     Die Expansion läuft in der Query-Zeitzone (HA-Konfiguration), damit
+     BYHOUR/BYDAY lokale Uhrzeit bedeuten und über DST-Wechsel stabil
+     bleiben. Einschränkung ICS-Export: dort steht DTSTART in UTC, daher
+     interpretieren Kalender-Clients RRULE-Uhrzeiten in UTC und
+     wiederkehrende Termine verschieben sich dort über DST-Grenzen um
+     eine Stunde (korrekt wäre TZID+VTIMEZONE — bewusst aufgeschoben).
 
 2. **WebSocket-API** (`websocket_api.py`): Befehle
    - `chronotope/events/save` — Upsert, generiert `id`, wenn keine übergeben
@@ -34,6 +46,7 @@ Vier Teile, alle unter `custom_components/chronotope/`:
      `distance_km` berechnet und danach sortiert, sonst nach Startzeit
    - `chronotope/categories` — distinct Kategorien für die Filter-UI
    - `chronotope/ics_url` — Abo-URL inkl. Token für den ICS-Export
+   - `chronotope/places/lookup` — Adress-Geo-Cache-Lookup (für Scraper)
 
 3. **Custom Panel** (`frontend/`-Quellcode → Bundle in
    `custom_components/chronotope/frontend/chronotope-panel.js`):
@@ -46,6 +59,11 @@ Vier Teile, alle unter `custom_components/chronotope/`:
    Filter-UI (Kategorie-Chips, Radius-Slider mit setzbarem Center per
    Kartenklick, Zeitfenster, Wochentage ganztags oder mit Uhrzeitbereich)
    speist die WebSocket-Abfrage; Ergebnisliste ist nach Distanz sortiert.
+   HA-Zonen (inkl. Zuhause) werden als zuschaltbarer Layer direkt aus
+   `hass.states` gerendert (`zone.*` hat Lat/Lon/Radius) — HA-Areas/Bereiche
+   haben keine Koordinaten und können deshalb nicht dargestellt werden.
+   Events mit `time_precision: approximate` erscheinen gestrichelt und
+   zeigen `schedule_text` statt konkreter Termine.
 
 4. **ICS-Export** (`ics.py` + `http.py`): HTTP-Endpoint
    `GET /api/chronotope/calendar.ics?token=<secret>` liefert die gefilterten
@@ -75,11 +93,24 @@ raw_description  TEXT
 geometry         TEXT  optionales GeoJSON (Geometry oder Feature) für
                        Lines/Shapes im Panel; lat/lon bleibt der kanonische
                        Punkt für Filterung und Sortierung
+address          TEXT  optionale Adresse; speist/nutzt den places-Cache
+time_precision   TEXT  exact (Default) | approximate — markiert unscharfe
+                       Zeitangaben („ca. 2x im Monat")
+schedule_text    TEXT  Original-Wortlaut der Zeitangabe für die Anzeige
 ```
 
-`geometry` ist eine Erweiterung gegenüber dem Minimalschema: Das Panel soll
-GeoJSON (Linien, Flächen) voll darstellen können, dafür braucht es einen
-Speicherort. Kern-Logik (Radius, Distanz) nutzt ausschließlich lat/lon.
+`geometry`, `address`, `time_precision` und `schedule_text` sind
+Erweiterungen gegenüber dem Minimalschema. Kern-Logik (Radius, Distanz)
+nutzt ausschließlich lat/lon.
+
+**Unscharfe Termine:** Das Matching läuft immer über die vorhandene
+RRULE-Maschinerie — die Quelle legt eine Best-Effort-RRULE ab
+(„Di+Do um 18 oder 20 Uhr" → `FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=18,20`,
+„~2x im Monat mittwochs" → `FREQ=WEEKLY;BYDAY=WE`), Filter und Karte
+funktionieren dadurch unverändert (Recall vor Präzision: lieber anzeigen
+als verpassen). `time_precision: approximate` + `schedule_text` sorgen
+dafür, dass UI und ICS-Export die Unschärfe ausweisen („~ mittwochs
+18 Uhr, ca. 2x im Monat") statt exakte Termine vorzutäuschen.
 
 ## Entwicklung
 

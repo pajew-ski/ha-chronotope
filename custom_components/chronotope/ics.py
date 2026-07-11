@@ -75,9 +75,13 @@ def event_to_vevent(event: dict[str, Any], dtstamp: str) -> list[str]:
         lines.append(f"CATEGORIES:{_escape_text(event['category'])}")
     if event.get("recurrence"):
         lines.append(f"RRULE:{_rrule_value(event['recurrence'])}")
+    if event.get("address"):
+        lines.append(f"LOCATION:{_escape_text(event['address'])}")
     if event.get("lat") is not None and event.get("lon") is not None:
         lines.append(f"GEO:{event['lat']:.6f};{event['lon']:.6f}")
     description_parts = []
+    if event.get("schedule_text"):
+        description_parts.append(f"Schedule: {event['schedule_text']}")
     if event.get("raw_description"):
         description_parts.append(str(event["raw_description"]))
     if event.get("source_name"):
@@ -88,6 +92,10 @@ def event_to_vevent(event: dict[str, Any], dtstamp: str) -> list[str]:
         lines.append(f"URL:{_escape_text(event['source_url'])}")
     if event.get("confidence"):
         lines.append(f"X-CHRONOTOPE-CONFIDENCE:{_escape_text(event['confidence'])}")
+    if event.get("time_precision") and event["time_precision"] != "exact":
+        lines.append(
+            f"X-CHRONOTOPE-TIME-PRECISION:{_escape_text(event['time_precision'])}"
+        )
     lines.append("END:VEVENT")
     return lines
 

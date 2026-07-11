@@ -39,6 +39,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_query_events)
     websocket_api.async_register_command(hass, ws_categories)
     websocket_api.async_register_command(hass, ws_ics_url)
+    websocket_api.async_register_command(hass, ws_lookup_place)
 
 
 def _get_store(hass: HomeAssistant) -> EventStore | None:
@@ -140,6 +141,25 @@ async def ws_categories(
         return
     categories = await hass.async_add_executor_job(store.categories)
     connection.send_result(msg["id"], {"categories": categories})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chronotope/places/lookup",
+        vol.Required("address"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_lookup_place(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Look up cached coordinates for an address (geo cache for scrapers)."""
+    store = _get_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
+        return
+    place = await hass.async_add_executor_job(store.lookup_place, msg["address"])
+    connection.send_result(msg["id"], {"place": place})
 
 
 @websocket_api.websocket_command(

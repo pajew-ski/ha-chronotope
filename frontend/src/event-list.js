@@ -86,6 +86,17 @@ class ChronotopeEventList extends LitElement {
       color: var(--primary-color, #03a9f4);
       text-decoration: none;
     }
+    .address {
+      margin-top: 2px;
+      font-size: 0.85em;
+      color: var(--secondary-text-color, #727272);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .fuzzy {
+      font-style: italic;
+    }
   `;
 
   render() {
@@ -113,7 +124,7 @@ class ChronotopeEventList extends LitElement {
             : nothing}
         </div>
         <div class="meta">
-          <span>${this._formatRange(start, end)}</span>
+          ${this._renderWhen(event, start, end)}
           ${event.recurrence ? html`<span title=${event.recurrence}>🔁</span>` : nothing}
           ${event.category ? html`<span class="badge">${event.category}</span>` : nothing}
           ${event.confidence
@@ -128,8 +139,17 @@ class ChronotopeEventList extends LitElement {
               </span>`
             : nothing}
         </div>
+        ${event.address ? html`<div class="address">${event.address}</div>` : nothing}
       </button>
     `;
+  }
+
+  _renderWhen(event, start, end) {
+    if (event.time_precision === "approximate") {
+      const text = event.schedule_text || this._formatRange(start, end);
+      return html`<span class="fuzzy" title="Unpräzise Zeitangabe">~ ${text}</span>`;
+    }
+    return html`<span>${this._formatRange(start, end)}</span>`;
   }
 
   _formatDistance(km) {

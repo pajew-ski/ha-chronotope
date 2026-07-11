@@ -208,6 +208,18 @@ class ChronotopeFilterBar extends LitElement {
         </div>
 
         <div class="group">
+          <span class="label">Karte</span>
+          <label class="row">
+            <input
+              type="checkbox"
+              .checked=${s.showZones}
+              @change=${(ev) => this._patch({ showZones: ev.target.checked })}
+            />
+            HA-Zonen anzeigen
+          </label>
+        </div>
+
+        <div class="group">
           <span class="label">Export</span>
           <button
             class="ics-button"

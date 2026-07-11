@@ -106,6 +106,7 @@ class ChronotopePanel extends LitElement {
       timeMode: "allday",
       timeFrom: "",
       timeTo: "",
+      showZones: true,
     };
     this._initialized = false;
   }
@@ -154,6 +155,7 @@ class ChronotopePanel extends LitElement {
           .center=${this._filters.center}
           .radiusKm=${this._filters.radiusKm}
           .radiusEnabled=${this._filters.radiusEnabled}
+          .zones=${this._filters.showZones ? this._haZones() : []}
           .selectedId=${this._selectedId}
           .dark=${dark}
           @center-changed=${this._onCenterChanged}
@@ -163,10 +165,44 @@ class ChronotopePanel extends LitElement {
     `;
   }
 
+  /**
+   * HA's native geo data: zone entities (incl. home) carry lat/lon/radius.
+   * Areas have no coordinates in HA, so zones are what we can render.
+   */
+  _haZones() {
+    const states = this.hass?.states || {};
+    const zones = Object.values(states)
+      .filter((st) => st.entity_id.startsWith("zone."))
+      .map((st) => ({
+        id: st.entity_id,
+        name: st.attributes.friendly_name || st.entity_id,
+        lat: st.attributes.latitude,
+        lon: st.attributes.longitude,
+        radius: st.attributes.radius ?? 100,
+        passive: Boolean(st.attributes.passive),
+        home: st.entity_id === "zone.home",
+      }))
+      .filter((zone) => zone.lat != null && zone.lon != null);
+    if (!zones.some((zone) => zone.home) && this.hass?.config?.latitude != null) {
+      zones.push({
+        id: "home",
+        name: "Zuhause",
+        lat: this.hass.config.latitude,
+        lon: this.hass.config.longitude,
+        radius: 100,
+        passive: false,
+        home: true,
+      });
+    }
+    return zones;
+  }
+
   _onFiltersChanged(ev) {
     this._filters = { ...this._filters, ...ev.detail };
     this._icsCopied = false;
-    this._scheduleQuery();
+    // showZones is a pure display toggle, no re-query needed.
+    const queryKeys = Object.keys(ev.detail).filter((key) => key !== "showZones");
+    if (queryKeys.length) this._scheduleQuery();
   }
 
   _onCenterChanged(ev) {
