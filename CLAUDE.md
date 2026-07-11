@@ -90,7 +90,8 @@ Alle Teile unter `custom_components/chronotope/`:
    - `services.py` — `add_event`, `delete_event`, `query` (Response),
      `lookup_place`, `digest` (Text-Digest, optional notify-Versand und
      Frei-/Belegt-Abgleich via `calendar.get_events`), `purge`, `backup`,
-     `import_ics`, `import_geojson`, `import_gpx`, `extract_event`
+     `import_ics`, `import_geojson`, `import_gpx`, `match_visits`
+     (rückwirkender Besuchsabgleich, siehe unten), `extract_event`
      (experimentell, via `conversation.process`)
    - `nearby.py` — Näheerkennung: `person.*`-Listener feuert
      `chronotope_nearby` (Cooldown 2 h pro Person+Event, 50-m-Bewegungs-
@@ -175,14 +176,15 @@ Kalender-Entities und ICS-Export die Unschärfe ausweisen.
 - **Installation:** Repo via HACS (Custom Repository) oder
   `custom_components/chronotope` nach `<config>/custom_components/`,
   dann Integration „Chronotope" über die UI hinzufügen (Config Flow,
-  Single Instance; Optionen: Näheerkennung an/aus + Radius).
+  Single Instance; Optionen: Näheerkennung an/aus + Radius,
+  geo_location-Ingest an/aus).
 
 ## Konventionen
 
 - `store.py`, `ics.py` und `importers.py` importieren kein Home Assistant —
   nur Stdlib und `dateutil`. HA-spezifisches lebt in `__init__.py`,
   `http.py`, `websocket_api.py`, `services.py`, `calendar.py`, `sensor.py`,
-  `nearby.py`, `entity.py`, `signals.py`, `config_flow.py`.
+  `nearby.py`, `geoloc.py`, `entity.py`, `signals.py`, `config_flow.py`.
 - Zeiten intern immer UTC-ISO-8601 (`+00:00`); Wochentag-/Uhrzeit-Filter
   und RRULE-Expansion werden in der HA-Zeitzone ausgewertet.
 - Kein CDN, keine externen Requests im Frontend außer OSM-Tiles; der Kern

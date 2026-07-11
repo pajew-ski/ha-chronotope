@@ -32,7 +32,8 @@ Benachrichtigungen und Kalender-Abos.
   und Events heute; global ein Statistik-Sensor mit Quellen-Health.
 - **Services**: `add_event`, `delete_event`, `query`, `lookup_place`,
   `digest`, `purge`, `backup`, `import_ics`, `import_geojson`, `import_gpx`,
-  `extract_event` — alle mit Response-Daten für Skripte/Automationen.
+  `match_visits`, `extract_event` — alle mit Response-Daten für
+  Skripte/Automationen.
 - **Bus-Events**: `chronotope_event_added|updated|deleted`,
   `chronotope_profiles_changed`, `chronotope_nearby`.
 - **Näheerkennung**: meldet per `chronotope_nearby`, wenn eine Person im
@@ -78,7 +79,8 @@ Benachrichtigungen und Kalender-Abos.
    `custom_components/chronotope` nach `<config>/custom_components/` kopieren.
 2. Home Assistant neu starten.
 3. Integration **Chronotope** über *Einstellungen → Geräte & Dienste*
-   hinzufügen. Optionen (Zahnrad): Näheerkennung an/aus, Radius.
+   hinzufügen. Optionen (Zahnrad): Näheerkennung an/aus + Radius,
+   geo_location-Ingest an/aus.
 4. Das Panel **Chronotope** erscheint in der Seitenleiste.
 
 ## Rezepte
@@ -129,6 +131,16 @@ automation:
           message: >-
             {{ trigger.event.data.events[0].category }} –
             {{ trigger.event.data.events[0].address or "auf der Karte" }}
+```
+
+**Einmalig nach der Installation: Besuchshistorie rückwirkend füllen**
+(Entwicklerwerkzeuge → Aktionen; reicht so weit zurück wie die
+Recorder-Aufbewahrung, Standard 10 Tage):
+```yaml
+action: chronotope.match_visits
+data:
+  days: 10
+  radius_km: 0.5
 ```
 
 **Nachtjob: alte gescrapte Events aufräumen:**
