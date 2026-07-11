@@ -1,0 +1,17 @@
+{
+  "name": "chronotope-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chronotope custom panel for Home Assistant (Lit 3 + Leaflet, vendored via esbuild)",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "lit": "^3.2.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}
