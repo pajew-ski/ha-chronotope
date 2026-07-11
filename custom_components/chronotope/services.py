@@ -1,8 +1,10 @@
-"""Home Assistant services: write, query and utility operations."""
+"""Home Assistant services: write, query, digest and utility operations."""
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import voluptuous as vol
 
@@ -69,6 +71,61 @@ _QUERY_SCHEMA = vol.Schema(
 )
 
 
+_WEEKDAYS_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+
+def _format_local(iso: str, tz: ZoneInfo) -> str:
+    dt = datetime.fromisoformat(iso).astimezone(tz)
+    return f"{_WEEKDAYS_DE[dt.weekday()]} {dt.day:02d}.{dt.month:02d}. {dt:%H:%M}"
+
+
+def _parse_calendar_time(value: Any, tz: ZoneInfo) -> datetime | None:
+    """Parse calendar.get_events start/end (datetime or all-day date)."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=tz)
+    return parsed.astimezone(timezone.utc)
+
+
+async def _busy_intervals(
+    hass: HomeAssistant,
+    calendar_ids: list[str],
+    start: datetime,
+    end: datetime,
+    tz: ZoneInfo,
+) -> list[tuple[datetime, datetime]]:
+    """Fetch busy intervals from other HA calendars for the free-time check."""
+    try:
+        response = await hass.services.async_call(
+            "calendar",
+            "get_events",
+            {
+                "entity_id": calendar_ids,
+                "start_date_time": start.isoformat(),
+                "end_date_time": end.isoformat(),
+            },
+            blocking=True,
+            return_response=True,
+        )
+    except Exception as err:  # noqa: BLE001 - report, don't crash the digest
+        raise ServiceValidationError(
+            f"calendar.get_events failed for {calendar_ids}: {err}"
+        ) from err
+    intervals: list[tuple[datetime, datetime]] = []
+    for calendar_data in (response or {}).values():
+        for item in calendar_data.get("events", []):
+            busy_start = _parse_calendar_time(item.get("start"), tz)
+            busy_end = _parse_calendar_time(item.get("end"), tz)
+            if busy_start and busy_end:
+                intervals.append((busy_start, busy_end))
+    return intervals
+
+
 def _get_store(hass: HomeAssistant) -> EventStore:
     store = hass.data.get(DOMAIN, {}).get(DATA_STORE)
     if store is None:
@@ -122,6 +179,86 @@ def async_register_services(hass: HomeAssistant) -> None:
         action = "updated" if existed or event.get("deduped") else "added"
         notify_event_change(hass, action, event)
         return {"event": event}
+
+    async def handle_digest(call: ServiceCall) -> ServiceResponse:
+        store = _get_store(hass)
+        tz = ZoneInfo(hass.config.time_zone or "UTC")
+        days = call.data.get("days", 7)
+        now = datetime.now(timezone.utc)
+        window_end = now + timedelta(days=days)
+
+        payload: dict[str, Any] = {"profile": call.data.get("profile")}
+        if not payload["profile"]:
+            payload = {}
+        flt_data = dict(payload)
+        flt_data["start"] = now.isoformat()
+        flt_data["end"] = window_end.isoformat()
+        flt_data["limit"] = call.data.get("limit", 25)
+        flt = await _service_filter(hass, flt_data)
+        events = await hass.async_add_executor_job(store.query_events, flt)
+
+        busy: list[tuple[datetime, datetime]] = []
+        check_calendars = call.data.get("check_calendars") or []
+        if check_calendars and events:
+            busy = await _busy_intervals(hass, check_calendars, now, window_end, tz)
+
+        # Favorites first, then chronological.
+        events.sort(
+            key=lambda ev: (
+                not ev.get("favorite"),
+                (ev.get("occurrences") or [[ev["start_time"], ev["end_time"]]])[0][0],
+            )
+        )
+
+        items: list[dict[str, Any]] = []
+        lines: list[str] = []
+        for event in events:
+            occ_start, occ_end = (
+                event.get("occurrences") or [[event["start_time"], event["end_time"]]]
+            )[0]
+            start_dt = datetime.fromisoformat(occ_start)
+            end_dt = datetime.fromisoformat(occ_end)
+            conflict = any(
+                start_dt < busy_end and end_dt > busy_start
+                for busy_start, busy_end in busy
+            )
+            fuzzy = event.get("time_precision") == "approximate"
+            when = (
+                f"~ {event['schedule_text']}"
+                if fuzzy and event.get("schedule_text")
+                else _format_local(occ_start, tz)
+            )
+            parts = [when, "–", event["title"]]
+            extras = []
+            if event.get("category"):
+                extras.append(event["category"])
+            if event.get("distance_km") is not None:
+                extras.append(f"{event['distance_km']:.1f} km".replace(".", ","))
+            if extras:
+                parts.append(f"({', '.join(extras)})")
+            if event.get("favorite"):
+                parts.append("★")
+            if check_calendars:
+                parts.append("[belegt]" if conflict else "[frei]")
+            lines.append("• " + " ".join(parts))
+            items.append(
+                {**event, "digest_start": occ_start, "conflict": conflict}
+            )
+
+        title = call.data.get("title") or (
+            f"Chronotope: {len(items)} Events in den nächsten {days} Tagen"
+        )
+        text = "\n".join(lines) if lines else "Keine passenden Events gefunden."
+
+        if notify_service := call.data.get("notify_service"):
+            domain, _, service = notify_service.rpartition(".")
+            await hass.services.async_call(
+                domain or "notify",
+                service,
+                {"title": title, "message": text},
+                blocking=True,
+            )
+        return {"count": len(items), "title": title, "text": text, "events": items}
 
     async def handle_purge(call: ServiceCall) -> ServiceResponse:
         store = _get_store(hass)
@@ -186,6 +323,22 @@ def async_register_services(hass: HomeAssistant) -> None:
         handle_lookup_place,
         schema=vol.Schema({vol.Required("address"): cv.string}),
         supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "digest",
+        handle_digest,
+        schema=vol.Schema(
+            {
+                vol.Optional("profile"): cv.string,
+                vol.Optional("days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)),
+                vol.Optional("limit"): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
+                vol.Optional("title"): cv.string,
+                vol.Optional("notify_service"): cv.string,
+                vol.Optional("check_calendars"): [cv.entity_id],
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,

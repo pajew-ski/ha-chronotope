@@ -9,5 +9,16 @@
     "abort": {
       "single_instance_allowed": "Already configured. Only a single instance is possible."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Chronotope options",
+        "data": {
+          "nearby_enabled": "Enable proximity detection (chronotope_nearby events, visit history)",
+          "nearby_radius_km": "Proximity radius (km)"
+        }
+      }
+    }
   }
 }

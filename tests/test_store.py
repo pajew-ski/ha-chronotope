@@ -597,6 +597,29 @@ class StoreTestCase(unittest.TestCase):
         )
         self.assertIn("(ohne Quelle)", sources)
 
+    def test_visits_recorded_and_attached(self):
+        saved = self.store.save_event(make_event(title="Besucht"))
+        self.store.record_visit(saved["id"], "person.michael")
+        self.store.record_visit(saved["id"], "person.michael")  # upsert
+        self.store.record_visit(saved["id"], "person.gast")
+
+        results = self.store.query_events(QueryFilter())
+        self.assertEqual(len(results), 1)
+        visits = results[0]["visits"]
+        self.assertEqual(
+            {v["person_id"] for v in visits}, {"person.michael", "person.gast"}
+        )
+
+        history = self.store.list_visits("person.michael")
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["title"], "Besucht")
+
+    def test_visits_removed_with_event(self):
+        saved = self.store.save_event(make_event(title="Weg"))
+        self.store.record_visit(saved["id"], "person.michael")
+        self.store.delete_event(saved["id"])
+        self.assertEqual(self.store.list_visits(), [])
+
     def test_haversine_known_distance(self):
         # Berlin -> Munich is roughly 504 km.
         distance = haversine_km(

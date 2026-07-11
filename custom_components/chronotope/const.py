@@ -26,6 +26,7 @@ DATA_VIEW_REGISTERED = "view_registered"
 SIGNAL_DATA_CHANGED = "chronotope_data_changed"
 SIGNAL_PROFILES_CHANGED = "chronotope_profiles_changed"
 
+EVENT_NEARBY = "chronotope_nearby"
 EVENT_ADDED = "chronotope_event_added"
 EVENT_UPDATED = "chronotope_event_updated"
 EVENT_DELETED = "chronotope_event_deleted"

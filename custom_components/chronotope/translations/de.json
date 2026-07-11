@@ -9,5 +9,16 @@
     "abort": {
       "single_instance_allowed": "Bereits konfiguriert. Nur eine Instanz ist möglich."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Chronotope Optionen",
+        "data": {
+          "nearby_enabled": "Näheerkennung aktivieren (chronotope_nearby-Events, Besuchshistorie)",
+          "nearby_radius_km": "Radius für Näheerkennung (km)"
+        }
+      }
+    }
   }
 }

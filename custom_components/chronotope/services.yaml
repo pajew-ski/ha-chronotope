@@ -174,6 +174,52 @@ query:
           max: 1000
           mode: box
 
+digest:
+  name: Digest erzeugen
+  description: >-
+    Stellt die nächsten Events (optional nach Profil gefiltert) als Text
+    zusammen — für Benachrichtigungs-Automationen ("Diese Woche in deiner
+    Nähe"). Optional direkt an einen notify-Dienst senden und Termine gegen
+    eigene Kalender auf freie Zeit prüfen.
+  fields:
+    profile:
+      name: Profil (ID oder Name)
+      selector:
+        text:
+    days:
+      name: Zeitraum (Tage)
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 90
+          mode: box
+    limit:
+      name: Max. Events
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 200
+          mode: box
+    title:
+      name: Titel
+      selector:
+        text:
+    notify_service:
+      name: Notify-Dienst
+      example: "notify.mobile_app_iphone"
+      selector:
+        text:
+    check_calendars:
+      name: Frei-Zeit-Abgleich gegen Kalender
+      example: "calendar.privat"
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: calendar
+
 purge:
   name: Alte Events aufräumen
   description: >-

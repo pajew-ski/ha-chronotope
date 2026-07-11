@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS profiles (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS visits (
+    event_id TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    PRIMARY KEY (event_id, person_id)
+);
 """
 
 # Columns added after the initial release; existing databases are upgraded
@@ -362,6 +369,7 @@ class EventStore:
     def delete_event(self, event_id: str) -> bool:
         with self._lock, self._conn:
             cursor = self._conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+            self._conn.execute("DELETE FROM visits WHERE event_id = ?", (event_id,))
         return cursor.rowcount > 0
 
     # ------------------------------------------------------------------- read
@@ -485,6 +493,65 @@ class EventStore:
         except (ValueError, TypeError):
             profile["filters"] = {}
         return profile
+
+    # ---------------------------------------------------------------- visits
+
+    def record_visit(
+        self, event_id: str, person_id: str, seen_at: str | None = None
+    ) -> dict[str, Any]:
+        """Record that a person was at an event (upsert, keeps first_seen)."""
+        now = seen_at or datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO visits (event_id, person_id, first_seen, last_seen)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(event_id, person_id) DO UPDATE SET
+                    last_seen = excluded.last_seen
+                """,
+                (event_id, person_id, now, now),
+            )
+        return {
+            "event_id": event_id,
+            "person_id": person_id,
+            "last_seen": now,
+        }
+
+    def visits_for_events(
+        self, event_ids: list[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        if not event_ids:
+            return {}
+        marks = ", ".join("?" for _ in event_ids)
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM visits WHERE event_id IN ({marks})", event_ids
+            ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            result.setdefault(row["event_id"], []).append(
+                {
+                    "person_id": row["person_id"],
+                    "first_seen": row["first_seen"],
+                    "last_seen": row["last_seen"],
+                }
+            )
+        return result
+
+    def list_visits(self, person_id: str | None = None) -> list[dict[str, Any]]:
+        """All visits, freshest first, with event title/category joined in."""
+        sql = (
+            "SELECT v.*, e.title, e.category, e.address FROM visits v"
+            " LEFT JOIN events e ON e.id = v.event_id"
+        )
+        params: list[Any] = []
+        if person_id is not None:
+            sql += " WHERE v.person_id = ?"
+            params.append(person_id)
+        sql += " ORDER BY v.last_seen DESC"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
 
     def purge(
         self, older_than_days: int, source_name: str | None = None
@@ -660,6 +727,11 @@ class EventStore:
         results.sort(key=lambda ev: _sort_key(ev, flt.has_center))
         if flt.limit is not None:
             results = results[: flt.limit]
+
+        visits = self.visits_for_events([ev["id"] for ev in results])
+        for event in results:
+            if event["id"] in visits:
+                event["visits"] = visits[event["id"]]
         return results
 
     # -------------------------------------------------------------- internals
