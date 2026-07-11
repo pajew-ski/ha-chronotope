@@ -14,6 +14,7 @@ import {
   saveEvent,
   deleteEvent,
   flagEvent,
+  fetchStats,
 } from "./api.js";
 
 const QUERY_DEBOUNCE_MS = 250;
@@ -51,6 +52,7 @@ class ChronotopePanel extends LitElement {
     _selectedProfileId: { state: true },
     _editing: { state: true },
     _capture: { state: true },
+    _stats: { state: true },
   };
 
   static styles = css`
@@ -139,6 +141,7 @@ class ChronotopePanel extends LitElement {
     this._selectedProfileId = "";
     this._editing = null;
     this._capture = null;
+    this._stats = null;
     this._filters = {
       categories: [],
       radiusEnabled: false,
@@ -170,7 +173,16 @@ class ChronotopePanel extends LitElement {
       };
       this._loadCategories();
       this._loadProfiles();
+      this._loadStats();
       this._runQuery();
+    }
+  }
+
+  async _loadStats() {
+    try {
+      this._stats = await fetchStats(this.hass);
+    } catch (err) {
+      console.error("chronotope: loading stats failed", err);
     }
   }
 
@@ -203,11 +215,13 @@ class ChronotopePanel extends LitElement {
         .icsCopied=${this._icsCopied}
         .profiles=${this._profiles}
         .selectedProfileId=${this._selectedProfileId}
+        .stats=${this._stats}
         @filters-changed=${this._onFiltersChanged}
         @ics-requested=${this._onIcsRequested}
         @profile-selected=${this._onProfileSelected}
         @profile-save=${this._onProfileSave}
         @profile-delete=${this._onProfileDelete}
+        @stats-requested=${this._loadStats}
       ></chronotope-filter-bar>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       <div class="content ${this.narrow ? "narrow" : ""}">

@@ -1,8 +1,11 @@
-"""Home Assistant services: write, query, digest and utility operations."""
+"""Home Assistant services: write, query, digest, import and utilities."""
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -16,8 +19,11 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DATA_STORE, DOMAIN
+from .ics import parse_ics
+from .importers import parse_geojson, parse_gpx
 from .signals import notify_event_change
 from .store import (
     CONFIDENCE_VALUES,
@@ -131,6 +137,64 @@ def _get_store(hass: HomeAssistant) -> EventStore:
     if store is None:
         raise HomeAssistantError("Chronotope is not set up")
     return store
+
+
+async def _read_source(hass: HomeAssistant, call: ServiceCall) -> str:
+    """Fetch import payload from url, path (relative to config) or data."""
+    if data := call.data.get("data"):
+        return data
+    if path := call.data.get("path"):
+        full = Path(path)
+        if not full.is_absolute():
+            full = Path(hass.config.path(path))
+        try:
+            return await hass.async_add_executor_job(
+                full.read_text, "utf-8"
+            )
+        except OSError as err:
+            raise ServiceValidationError(f"Cannot read {full}: {err}") from err
+    if url := call.data.get("url"):
+        session = async_get_clientsession(hass)
+        try:
+            async with session.get(url, timeout=30) as response:
+                response.raise_for_status()
+                return await response.text()
+        except Exception as err:  # noqa: BLE001
+            raise ServiceValidationError(f"Cannot fetch {url}: {err}") from err
+    raise ServiceValidationError("One of url, path or data is required")
+
+
+async def _save_imported(
+    hass: HomeAssistant,
+    events: list[dict[str, Any]],
+    errors: list[str],
+    call: ServiceCall,
+) -> ServiceResponse:
+    """Store parsed events with dedupe and shared source metadata."""
+    store = _get_store(hass)
+    dedupe = call.data.get("dedupe", True)
+    now = datetime.now(timezone.utc).isoformat()
+    saved = 0
+    for event in events:
+        if call.data.get("category"):
+            event["category"] = call.data["category"]
+        event.setdefault("source_name", call.data.get("source_name") or "import")
+        event.setdefault("confidence", "scraped")
+        event.setdefault("scraped_at", now)
+        if call.data.get("url"):
+            event.setdefault("source_url", call.data["url"])
+        try:
+            stored = await hass.async_add_executor_job(
+                lambda data=event: store.save_event(data, dedupe=dedupe)
+            )
+        except ValueError as err:
+            errors.append(f"{event.get('title', '?')}: {err}")
+            continue
+        notify_event_change(
+            hass, "updated" if stored.get("deduped") else "added", stored
+        )
+        saved += 1
+    return {"imported": saved, "errors": errors}
 
 
 async def _service_filter(
@@ -260,6 +324,113 @@ def async_register_services(hass: HomeAssistant) -> None:
             )
         return {"count": len(items), "title": title, "text": text, "events": items}
 
+    async def handle_import_ics(call: ServiceCall) -> ServiceResponse:
+        text = await _read_source(hass, call)
+        events = await hass.async_add_executor_job(
+            parse_ics, text, hass.config.time_zone or "UTC"
+        )
+        return await _save_imported(hass, events, [], call)
+
+    async def handle_import_geojson(call: ServiceCall) -> ServiceResponse:
+        text = await _read_source(hass, call)
+        try:
+            events, errors = await hass.async_add_executor_job(
+                lambda: parse_geojson(
+                    text,
+                    default_start=call.data.get("default_start"),
+                    default_end=call.data.get("default_end"),
+                    category=call.data.get("category"),
+                    title_property=call.data.get("title_property"),
+                )
+            )
+        except (ValueError, TypeError) as err:
+            raise ServiceValidationError(f"Invalid GeoJSON: {err}") from err
+        return await _save_imported(hass, events, errors, call)
+
+    async def handle_import_gpx(call: ServiceCall) -> ServiceResponse:
+        text = await _read_source(hass, call)
+        try:
+            events, errors = await hass.async_add_executor_job(
+                lambda: parse_gpx(
+                    text,
+                    default_start=call.data.get("default_start"),
+                    default_end=call.data.get("default_end"),
+                    category=call.data.get("category"),
+                )
+            )
+        except Exception as err:  # noqa: BLE001 - XML parse errors vary
+            raise ServiceValidationError(f"Invalid GPX: {err}") from err
+        return await _save_imported(hass, events, errors, call)
+
+    async def handle_backup(call: ServiceCall) -> ServiceResponse:
+        store = _get_store(hass)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        filename = call.data.get("filename") or f"chronotope-backup-{stamp}.db"
+        dest = filename if Path(filename).is_absolute() else hass.config.path(filename)
+        path = await hass.async_add_executor_job(store.backup, dest)
+        return {"path": path}
+
+    async def handle_extract_event(call: ServiceCall) -> ServiceResponse:
+        """Experimental: extract a structured event from free text via a
+        conversation agent (LLM), optionally saving it as inferred."""
+        tz_name = hass.config.time_zone or "UTC"
+        today = datetime.now(ZoneInfo(tz_name)).strftime("%A, %Y-%m-%d")
+        prompt = (
+            "Extrahiere aus dem folgenden Text ein Event als reines JSON-Objekt"
+            " (keine Erklärungen, kein Markdown) mit diesen Feldern:"
+            ' title (Pflicht), category, address, lat, lon, start_time und'
+            " end_time (ISO 8601 mit Zeitzonen-Offset), recurrence (RRULE nach"
+            " RFC 5545, nur wenn wiederkehrend; BYHOUR/BYDAY in lokaler Zeit),"
+            ' time_precision ("exact" oder "approximate" bei unscharfen'
+            ' Angaben wie "ca. 2x im Monat"), schedule_text (Original-Wortlaut'
+            " der Zeitangabe bei approximate), raw_description, source_url."
+            f" Nicht ermittelbare Felder weglassen. Heute ist {today},"
+            f" Zeitzone {tz_name}. Text:\n\n{call.data['text']}"
+        )
+        service_data: dict[str, Any] = {"text": prompt}
+        if agent := call.data.get("agent_id"):
+            service_data["agent_id"] = agent
+        try:
+            result = await hass.services.async_call(
+                "conversation",
+                "process",
+                service_data,
+                blocking=True,
+                return_response=True,
+            )
+            speech = result["response"]["speech"]["plain"]["speech"]
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(f"conversation.process failed: {err}") from err
+
+        match = re.search(r"\{.*\}", speech, re.DOTALL)
+        if not match:
+            raise HomeAssistantError(
+                f"Agent returned no JSON object: {speech[:200]}"
+            )
+        try:
+            extracted = json.loads(match.group(0))
+        except json.JSONDecodeError as err:
+            raise HomeAssistantError(f"Agent returned invalid JSON: {err}") from err
+
+        extracted.setdefault("confidence", "inferred")
+        extracted.setdefault("source_name", "llm-extract")
+        saved = False
+        if call.data.get("save"):
+            store = _get_store(hass)
+            try:
+                extracted = await hass.async_add_executor_job(
+                    lambda: store.save_event(extracted, dedupe=True)
+                )
+            except ValueError as err:
+                raise ServiceValidationError(
+                    f"Extracted event is invalid: {err}"
+                ) from err
+            notify_event_change(
+                hass, "updated" if extracted.get("deduped") else "added", extracted
+            )
+            saved = True
+        return {"event": extracted, "saved": saved}
+
     async def handle_purge(call: ServiceCall) -> ServiceResponse:
         store = _get_store(hass)
         deleted = await hass.async_add_executor_job(
@@ -323,6 +494,68 @@ def async_register_services(hass: HomeAssistant) -> None:
         handle_lookup_place,
         schema=vol.Schema({vol.Required("address"): cv.string}),
         supports_response=SupportsResponse.ONLY,
+    )
+    _import_base = {
+        vol.Optional("url"): cv.string,
+        vol.Optional("path"): cv.string,
+        vol.Optional("data"): cv.string,
+        vol.Optional("source_name"): cv.string,
+        vol.Optional("category"): cv.string,
+        vol.Optional("dedupe"): cv.boolean,
+    }
+    hass.services.async_register(
+        DOMAIN,
+        "import_ics",
+        handle_import_ics,
+        schema=vol.Schema(_import_base),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "import_geojson",
+        handle_import_geojson,
+        schema=vol.Schema(
+            {
+                **_import_base,
+                vol.Optional("default_start"): cv.string,
+                vol.Optional("default_end"): cv.string,
+                vol.Optional("title_property"): cv.string,
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "import_gpx",
+        handle_import_gpx,
+        schema=vol.Schema(
+            {
+                **_import_base,
+                vol.Optional("default_start"): cv.string,
+                vol.Optional("default_end"): cv.string,
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "backup",
+        handle_backup,
+        schema=vol.Schema({vol.Optional("filename"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "extract_event",
+        handle_extract_event,
+        schema=vol.Schema(
+            {
+                vol.Required("text"): cv.string,
+                vol.Optional("agent_id"): cv.string,
+                vol.Optional("save"): cv.boolean,
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,

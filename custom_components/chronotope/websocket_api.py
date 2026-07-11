@@ -48,6 +48,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_save_profile)
     websocket_api.async_register_command(hass, ws_delete_profile)
     websocket_api.async_register_command(hass, ws_list_profiles)
+    websocket_api.async_register_command(hass, ws_stats)
 
 
 def _get_store(hass: HomeAssistant) -> EventStore | None:
@@ -195,6 +196,20 @@ async def ws_delete_profile(
     if deleted:
         notify_profiles_changed(hass)
     connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "chronotope/stats"})
+@websocket_api.async_response
+async def ws_stats(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Aggregate statistics (totals, categories, source health)."""
+    store = _get_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
+        return
+    stats = await hass.async_add_executor_job(store.stats)
+    connection.send_result(msg["id"], stats)
 
 
 @websocket_api.websocket_command({vol.Required("type"): "chronotope/profiles/list"})

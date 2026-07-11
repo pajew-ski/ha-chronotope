@@ -620,6 +620,18 @@ class StoreTestCase(unittest.TestCase):
         self.store.delete_event(saved["id"])
         self.assertEqual(self.store.list_visits(), [])
 
+    def test_backup_creates_consistent_copy(self):
+        self.store.save_event(make_event(title="Sicher"))
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = str(Path(tmp) / "backup.db")
+            self.assertEqual(self.store.backup(dest), dest)
+            copy = sqlite3.connect(dest)
+            try:
+                count = copy.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+            finally:
+                copy.close()
+            self.assertEqual(count, 1)
+
     def test_haversine_known_distance(self):
         # Berlin -> Munich is roughly 504 km.
         distance = haversine_km(

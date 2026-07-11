@@ -14,6 +14,7 @@ class ChronotopeFilterBar extends LitElement {
     icsCopied: { attribute: false },
     profiles: { attribute: false },
     selectedProfileId: { attribute: false },
+    stats: { attribute: false },
     _profileName: { state: true },
   };
 
@@ -111,6 +112,20 @@ class ChronotopeFilterBar extends LitElement {
     }
     .ics-button:hover {
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
+    }
+    details.stats {
+      font-size: 12px;
+      color: var(--secondary-text-color, #727272);
+    }
+    details.stats summary {
+      cursor: pointer;
+    }
+    details.stats table {
+      border-collapse: collapse;
+      margin-top: 4px;
+    }
+    details.stats td {
+      padding: 1px 8px 1px 0;
     }
   `;
 
@@ -315,8 +330,37 @@ class ChronotopeFilterBar extends LitElement {
           >
             ${this.icsCopied ? "URL kopiert ✓" : "ICS-Abo-URL kopieren"}
           </button>
+          ${this._renderStats()}
         </div>
       </div>
+    `;
+  }
+
+  _renderStats() {
+    const stats = this.stats;
+    if (!stats) return nothing;
+    return html`
+      <details class="stats" @toggle=${(ev) => {
+        if (ev.target.open) this.dispatchEvent(new CustomEvent("stats-requested"));
+      }}>
+        <summary>Statistik (${stats.total_events} Events)</summary>
+        <table>
+          <tr><td>Orte im Cache</td><td>${stats.places}</td></tr>
+          <tr><td>Profile</td><td>${stats.profiles}</td></tr>
+          ${(stats.sources || []).map(
+            (source) => html`
+              <tr>
+                <td>${source.source}</td>
+                <td>
+                  ${source.events} Events${source.last_scraped
+                    ? html`, zuletzt ${new Date(source.last_scraped).toLocaleDateString()}`
+                    : nothing}
+                </td>
+              </tr>
+            `
+          )}
+        </table>
+      </details>
     `;
   }
 

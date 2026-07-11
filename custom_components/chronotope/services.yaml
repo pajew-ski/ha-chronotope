@@ -174,6 +174,166 @@ query:
           max: 1000
           mode: box
 
+import_ics:
+  name: ICS importieren
+  description: >-
+    Importiert Events aus einem iCalendar-Feed (URL, Datei relativ zum
+    Config-Verzeichnis oder direkt übergebener Inhalt). UIDs werden zu
+    Event-IDs, Re-Importe aktualisieren statt zu duplizieren.
+  fields:
+    url:
+      name: URL
+      example: "https://example.org/feed.ics"
+      selector:
+        text:
+    path:
+      name: Dateipfad
+      example: "www/feed.ics"
+      selector:
+        text:
+    data:
+      name: ICS-Inhalt
+      selector:
+        text:
+          multiline: true
+    source_name:
+      name: Quellenname
+      selector:
+        text:
+    category:
+      name: Kategorie (überschreibt)
+      selector:
+        text:
+    dedupe:
+      name: Deduplizieren
+      default: true
+      selector:
+        boolean:
+
+import_geojson:
+  name: GeoJSON importieren
+  description: >-
+    Importiert GeoJSON-Features als Events. Zeiten kommen aus den
+    Feature-Properties (start_time/end_time) oder den Defaults.
+  fields:
+    url:
+      name: URL
+      selector:
+        text:
+    path:
+      name: Dateipfad
+      selector:
+        text:
+    data:
+      name: GeoJSON-Inhalt
+      selector:
+        text:
+          multiline: true
+    default_start:
+      name: Standard-Beginn
+      example: "2026-07-12T10:00:00+02:00"
+      selector:
+        text:
+    default_end:
+      name: Standard-Ende
+      selector:
+        text:
+    title_property:
+      name: Titel-Property
+      example: "name"
+      selector:
+        text:
+    source_name:
+      name: Quellenname
+      selector:
+        text:
+    category:
+      name: Kategorie (überschreibt)
+      selector:
+        text:
+    dedupe:
+      name: Deduplizieren
+      default: true
+      selector:
+        boolean:
+
+import_gpx:
+  name: GPX importieren
+  description: >-
+    Importiert GPX-Tracks als Events mit LineString-Geometrie. Zeiten aus
+    den Trackpunkten oder den Defaults.
+  fields:
+    url:
+      name: URL
+      selector:
+        text:
+    path:
+      name: Dateipfad
+      selector:
+        text:
+    data:
+      name: GPX-Inhalt
+      selector:
+        text:
+          multiline: true
+    default_start:
+      name: Standard-Beginn
+      selector:
+        text:
+    default_end:
+      name: Standard-Ende
+      selector:
+        text:
+    source_name:
+      name: Quellenname
+      selector:
+        text:
+    category:
+      name: Kategorie
+      selector:
+        text:
+    dedupe:
+      name: Deduplizieren
+      default: true
+      selector:
+        boolean:
+
+backup:
+  name: Datenbank sichern
+  description: >-
+    Erstellt eine konsistente Kopie der Event-Datenbank (SQLite-Backup-API)
+    im Config-Verzeichnis; Antwort enthält den Pfad.
+  fields:
+    filename:
+      name: Dateiname
+      example: "chronotope-backup.db"
+      selector:
+        text:
+
+extract_event:
+  name: Event aus Text extrahieren (experimentell)
+  description: >-
+    Lässt einen Conversation-Agenten (LLM) aus Freitext ein strukturiertes
+    Event extrahieren — inkl. Best-Effort-RRULE und Unschärfe-Kennzeichnung.
+    Optional direkt speichern (confidence: inferred).
+  fields:
+    text:
+      name: Text
+      required: true
+      example: "Flohmarkt am Boxhagener Platz, jeden Sonntag 10-16 Uhr"
+      selector:
+        text:
+          multiline: true
+    agent_id:
+      name: Conversation-Agent
+      selector:
+        conversation_agent:
+    save:
+      name: Direkt speichern
+      default: false
+      selector:
+        boolean:
+
 digest:
   name: Digest erzeugen
   description: >-

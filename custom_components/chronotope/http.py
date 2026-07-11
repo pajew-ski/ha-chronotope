@@ -115,7 +115,7 @@ class ChronotopeICSView(HomeAssistantView):
             return web.Response(status=400, text=str(err))
 
         return web.Response(
-            text=events_to_ics(events),
+            text=events_to_ics(events, tz_name=tz_name),
             content_type="text/calendar",
             charset="utf-8",
         )

@@ -27,6 +27,8 @@ export const saveProfile = (hass, profile) =>
 export const deleteProfile = (hass, profileId) =>
   hass.callWS({ type: "chronotope/profiles/delete", profile_id: profileId });
 
+export const fetchStats = (hass) => hass.callWS({ type: "chronotope/stats" });
+
 /**
  * Translate the panel's filter state into the WebSocket filter payload
  * shared by events/query and ics_url.

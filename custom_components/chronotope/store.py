@@ -609,6 +609,16 @@ class EventStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def backup(self, dest_path: str) -> str:
+        """Consistent online backup via SQLite's backup API."""
+        with self._lock:
+            dest = sqlite3.connect(dest_path)
+            try:
+                self._conn.backup(dest)
+            finally:
+                dest.close()
+        return dest_path
+
     def stats(self) -> dict[str, Any]:
         """Aggregate statistics for sensors and the panel."""
         sources = self.source_stats()
