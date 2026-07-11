@@ -15,6 +15,18 @@ export const saveEvent = (hass, event) =>
 export const deleteEvent = (hass, eventId) =>
   hass.callWS({ type: "chronotope/events/delete", event_id: eventId });
 
+export const flagEvent = (hass, eventId, flags) =>
+  hass.callWS({ type: "chronotope/events/flag", event_id: eventId, ...flags });
+
+export const listProfiles = (hass) =>
+  hass.callWS({ type: "chronotope/profiles/list" });
+
+export const saveProfile = (hass, profile) =>
+  hass.callWS({ type: "chronotope/profiles/save", profile });
+
+export const deleteProfile = (hass, profileId) =>
+  hass.callWS({ type: "chronotope/profiles/delete", profile_id: profileId });
+
 /**
  * Translate the panel's filter state into the WebSocket filter payload
  * shared by events/query and ics_url.
@@ -33,5 +45,7 @@ export function buildWsFilters(state) {
     if (state.timeFrom) filters.time_from = state.timeFrom;
     if (state.timeTo) filters.time_to = state.timeTo;
   }
+  if (state.text) filters.text = state.text;
+  if (state.favoritesOnly) filters.favorites_only = true;
   return filters;
 }

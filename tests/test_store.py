@@ -383,6 +383,89 @@ class StoreTestCase(unittest.TestCase):
             finally:
                 migrated.close()
 
+    def test_text_search(self):
+        self.store.save_event(make_event(title="Nachtflohmarkt", category="market"))
+        self.store.save_event(
+            make_event(title="Konzert", raw_description="Jazz im Park")
+        )
+        self.assertEqual(
+            [e["title"] for e in self.store.query_events(QueryFilter(text="flohmarkt"))],
+            ["Nachtflohmarkt"],
+        )
+        self.assertEqual(
+            [e["title"] for e in self.store.query_events(QueryFilter(text="jazz"))],
+            ["Konzert"],
+        )
+        self.assertEqual(self.store.query_events(QueryFilter(text="oper")), [])
+
+    def test_flags_favorite_hidden(self):
+        saved = self.store.save_event(make_event(title="Flagged"))
+        self.store.set_event_flags(saved["id"], favorite=True)
+        results = self.store.query_events(QueryFilter(favorites_only=True))
+        self.assertEqual([e["id"] for e in results], [saved["id"]])
+
+        self.store.set_event_flags(saved["id"], hidden=True)
+        self.assertEqual(self.store.query_events(QueryFilter()), [])
+        shown = self.store.query_events(QueryFilter(include_hidden=True))
+        self.assertEqual(len(shown), 1)
+
+    def test_flags_survive_resave(self):
+        saved = self.store.save_event(make_event(id="fix", title="V1"))
+        self.store.set_event_flags(saved["id"], favorite=True)
+        # A scraper re-saving the event without flag fields must not reset them.
+        self.store.save_event(make_event(id="fix", title="V2"))
+        stored = self.store.get_event("fix")
+        self.assertEqual(stored["title"], "V2")
+        self.assertEqual(stored["favorite"], 1)
+
+    def test_profiles_crud(self):
+        profile = self.store.save_profile(
+            {"name": "Sport abends", "filters": {"categories": ["sport"], "time_from": "18:00"}}
+        )
+        self.assertTrue(profile["id"])
+        listed = self.store.list_profiles()
+        self.assertEqual([p["name"] for p in listed], ["Sport abends"])
+        self.assertEqual(listed[0]["filters"]["categories"], ["sport"])
+
+        by_name = self.store.get_profile("Sport abends")
+        self.assertEqual(by_name["id"], profile["id"])
+        by_id = self.store.get_profile(profile["id"])
+        self.assertEqual(by_id["name"], "Sport abends")
+
+        updated = self.store.save_profile(
+            {"id": profile["id"], "name": "Sport", "filters": {}}
+        )
+        self.assertEqual(updated["created_at"], profile["created_at"])
+        self.assertTrue(self.store.delete_profile(profile["id"]))
+        self.assertFalse(self.store.delete_profile(profile["id"]))
+
+    def test_profile_name_clash_rejected(self):
+        self.store.save_profile({"name": "A", "filters": {}})
+        with self.assertRaises(ValueError):
+            self.store.save_profile({"name": "A", "filters": {}})
+        with self.assertRaises(ValueError):
+            self.store.save_profile({"name": "  ", "filters": {}})
+
+    def test_filter_from_payload(self):
+        payload = {
+            "categories": ["market"],
+            "center": {"lat": 52.5, "lon": 13.4},
+            "radius_km": 5,
+            "start": "2026-07-11T00:00:00+00:00",
+            "weekdays": [5],
+            "favorites_only": True,
+        }
+        flt = QueryFilter.from_payload(payload, tz_name="Europe/Berlin")
+        self.assertEqual(flt.categories, ["market"])
+        self.assertEqual(flt.center_lat, 52.5)
+        self.assertTrue(flt.favorites_only)
+        self.assertEqual(flt.tz_name, "Europe/Berlin")
+        # Explicit window overrides payload.
+        flt2 = QueryFilter.from_payload(
+            payload, window_start="2027-01-01T00:00:00+00:00"
+        )
+        self.assertEqual(flt2.window_start, "2027-01-01T00:00:00+00:00")
+
     def test_haversine_known_distance(self):
         # Berlin -> Munich is roughly 504 km.
         distance = haversine_km(

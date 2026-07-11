@@ -12,7 +12,17 @@ class ChronotopeFilterBar extends LitElement {
     state: { attribute: false },
     categories: { attribute: false },
     icsCopied: { attribute: false },
+    profiles: { attribute: false },
+    selectedProfileId: { attribute: false },
+    _profileName: { state: true },
   };
+
+  constructor() {
+    super();
+    this.profiles = [];
+    this.selectedProfileId = "";
+    this._profileName = "";
+  }
 
   static styles = css`
     :host {
@@ -68,6 +78,7 @@ class ChronotopeFilterBar extends LitElement {
     }
     input[type="datetime-local"],
     input[type="time"],
+    input[type="text"],
     select {
       background: var(--primary-background-color, #fafafa);
       color: var(--primary-text-color, #212121);
@@ -103,10 +114,66 @@ class ChronotopeFilterBar extends LitElement {
     }
   `;
 
+  updated(changed) {
+    if (changed.has("selectedProfileId")) {
+      const profile = (this.profiles || []).find((p) => p.id === this.selectedProfileId);
+      this._profileName = profile ? profile.name : "";
+    }
+  }
+
   render() {
     const s = this.state;
     return html`
       <div class="groups">
+        <div class="group">
+          <span class="label">Profil</span>
+          <div class="row">
+            <select
+              .value=${this.selectedProfileId || ""}
+              @change=${(ev) =>
+                this.dispatchEvent(
+                  new CustomEvent("profile-selected", { detail: { id: ev.target.value } })
+                )}
+            >
+              <option value="">— kein Profil —</option>
+              ${(this.profiles || []).map(
+                (profile) => html`
+                  <option value=${profile.id} ?selected=${profile.id === this.selectedProfileId}>
+                    ${profile.name}
+                  </option>
+                `
+              )}
+            </select>
+            <input
+              type="text"
+              placeholder="Profilname"
+              .value=${this._profileName}
+              @input=${(ev) => (this._profileName = ev.target.value)}
+            />
+            <button
+              class="ics-button"
+              title="Aktuelle Filter unter diesem Namen speichern"
+              @click=${this._saveProfile}
+            >
+              Speichern
+            </button>
+            ${this.selectedProfileId
+              ? html`<button
+                  class="ics-button"
+                  title="Ausgewähltes Profil löschen"
+                  @click=${() =>
+                    this.dispatchEvent(
+                      new CustomEvent("profile-delete", {
+                        detail: { id: this.selectedProfileId },
+                      })
+                    )}
+                >
+                  Löschen
+                </button>`
+              : nothing}
+          </div>
+        </div>
+
         <div class="group">
           <span class="label">Kategorie</span>
           <div class="chips">
@@ -234,6 +301,21 @@ class ChronotopeFilterBar extends LitElement {
 
   _patch(patch) {
     this.dispatchEvent(new CustomEvent("filters-changed", { detail: patch }));
+  }
+
+  _saveProfile() {
+    const name = (this._profileName || "").trim();
+    if (!name) return;
+    const selected = (this.profiles || []).find((p) => p.id === this.selectedProfileId);
+    this.dispatchEvent(
+      new CustomEvent("profile-save", {
+        detail: {
+          name,
+          // Same name as the selected profile -> update it in place.
+          id: selected && selected.name === name ? selected.id : undefined,
+        },
+      })
+    );
   }
 
   _toggleCategory(cat) {

@@ -50,7 +50,9 @@ CREATE TABLE IF NOT EXISTS events (
     geometry TEXT,
     address TEXT,
     time_precision TEXT,
-    schedule_text TEXT
+    schedule_text TEXT,
+    favorite INTEGER NOT NULL DEFAULT 0,
+    hidden INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
 CREATE INDEX IF NOT EXISTS idx_events_start ON events (start_time);
@@ -62,11 +64,24 @@ CREATE TABLE IF NOT EXISTS places (
     lon REAL NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    filters TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 # Columns added after the initial release; existing databases are upgraded
 # in-place via ALTER TABLE.
-_MIGRATED_COLUMNS = ("address", "time_precision", "schedule_text")
+_MIGRATED_COLUMNS = {
+    "address": "TEXT",
+    "time_precision": "TEXT",
+    "schedule_text": "TEXT",
+    "favorite": "INTEGER NOT NULL DEFAULT 0",
+    "hidden": "INTEGER NOT NULL DEFAULT 0",
+}
 
 _COLUMNS = (
     "id",
@@ -86,6 +101,8 @@ _COLUMNS = (
     "address",
     "time_precision",
     "schedule_text",
+    "favorite",
+    "hidden",
 )
 
 
@@ -135,6 +152,9 @@ class QueryFilter:
     weekdays: list[int] | None = None  # 0 = Monday .. 6 = Sunday
     time_from: str | None = None  # "HH:MM", interpreted in tz_name
     time_to: str | None = None
+    text: str | None = None  # substring search over title/description/address
+    favorites_only: bool = False
+    include_hidden: bool = False
     tz_name: str = "UTC"
     limit: int | None = None
 
@@ -145,6 +165,37 @@ class QueryFilter:
     @property
     def has_mask(self) -> bool:
         return bool(self.weekdays) or self.time_from is not None or self.time_to is not None
+
+    @classmethod
+    def from_payload(
+        cls,
+        payload: dict[str, Any],
+        tz_name: str = "UTC",
+        window_start: str | None = None,
+        window_end: str | None = None,
+        limit: int | None = None,
+    ) -> "QueryFilter":
+        """Build a filter from the shared payload shape used by the
+        WebSocket API and stored profiles. Explicit window/limit arguments
+        override values in the payload (consumers like calendar entities
+        bring their own time window)."""
+        center = payload.get("center") or {}
+        return cls(
+            categories=payload.get("categories") or None,
+            center_lat=center.get("lat"),
+            center_lon=center.get("lon"),
+            radius_km=payload.get("radius_km"),
+            window_start=window_start if window_start is not None else payload.get("start"),
+            window_end=window_end if window_end is not None else payload.get("end"),
+            weekdays=payload.get("weekdays") or None,
+            time_from=payload.get("time_from"),
+            time_to=payload.get("time_to"),
+            text=payload.get("text") or None,
+            favorites_only=bool(payload.get("favorites_only")),
+            include_hidden=bool(payload.get("include_hidden")),
+            tz_name=tz_name,
+            limit=limit if limit is not None else payload.get("limit"),
+        )
 
 
 class EventStore:
@@ -161,9 +212,9 @@ class EventStore:
             existing = {
                 row[1] for row in self._conn.execute("PRAGMA table_info(events)")
             }
-            for column in _MIGRATED_COLUMNS:
+            for column, ddl in _MIGRATED_COLUMNS.items():
                 if column not in existing:
-                    self._conn.execute(f"ALTER TABLE events ADD COLUMN {column} TEXT")
+                    self._conn.execute(f"ALTER TABLE events ADD COLUMN {column} {ddl}")
 
     def close(self) -> None:
         with self._lock:
@@ -195,11 +246,46 @@ class EventStore:
                     self._upsert_place_locked(
                         event["address"], event["lat"], event["lon"]
                     )
+            # Preserve user flags on re-save (e.g. a scraper refreshing an
+            # event must not clear a favorite) unless explicitly provided.
+            if event["favorite"] is None or event["hidden"] is None:
+                row = self._conn.execute(
+                    "SELECT favorite, hidden FROM events WHERE id = ?",
+                    (event["id"],),
+                ).fetchone()
+                if event["favorite"] is None:
+                    event["favorite"] = row["favorite"] if row else 0
+                if event["hidden"] is None:
+                    event["hidden"] = row["hidden"] if row else 0
             self._conn.execute(
                 f"INSERT OR REPLACE INTO events ({columns}) VALUES ({placeholders})",
                 event,
             )
         return event
+
+    def set_event_flags(
+        self,
+        event_id: str,
+        favorite: bool | None = None,
+        hidden: bool | None = None,
+    ) -> dict[str, Any] | None:
+        """Update favorite/hidden flags without touching other fields."""
+        sets: list[str] = []
+        params: list[Any] = []
+        if favorite is not None:
+            sets.append("favorite = ?")
+            params.append(int(bool(favorite)))
+        if hidden is not None:
+            sets.append("hidden = ?")
+            params.append(int(bool(hidden)))
+        if not sets:
+            return self.get_event(event_id)
+        params.append(event_id)
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"UPDATE events SET {', '.join(sets)} WHERE id = ?", params
+            )
+        return self.get_event(event_id)
 
     def delete_event(self, event_id: str) -> bool:
         with self._lock, self._conn:
@@ -257,6 +343,77 @@ class EventStore:
             ),
         )
 
+    # --------------------------------------------------------------- profiles
+
+    def save_profile(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a named filter profile."""
+        profile_id = str(data.get("id") or uuid.uuid4().hex)
+        name = str(data.get("name") or "").strip()
+        if not name:
+            raise ValueError("profile name is required")
+        filters = data.get("filters") or {}
+        if not isinstance(filters, dict):
+            raise ValueError("profile filters must be an object")
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn:
+            clash = self._conn.execute(
+                "SELECT id FROM profiles WHERE name = ? AND id != ?",
+                (name, profile_id),
+            ).fetchone()
+            if clash:
+                raise ValueError(f"profile name already in use: {name}")
+            existing = self._conn.execute(
+                "SELECT created_at FROM profiles WHERE id = ?", (profile_id,)
+            ).fetchone()
+            created_at = existing["created_at"] if existing else now
+            self._conn.execute(
+                "INSERT OR REPLACE INTO profiles (id, name, filters, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (profile_id, name, json.dumps(filters), created_at, now),
+            )
+        return {
+            "id": profile_id,
+            "name": name,
+            "filters": filters,
+            "created_at": created_at,
+            "updated_at": now,
+        }
+
+    def delete_profile(self, profile_id: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM profiles WHERE id = ?", (profile_id,)
+            )
+        return cursor.rowcount > 0
+
+    def list_profiles(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM profiles ORDER BY name"
+            ).fetchall()
+        return [self._profile_row(row) for row in rows]
+
+    def get_profile(self, id_or_name: str) -> dict[str, Any] | None:
+        """Fetch a profile by id, falling back to its (unique) name."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM profiles WHERE id = ?", (id_or_name,)
+            ).fetchone()
+            if row is None:
+                row = self._conn.execute(
+                    "SELECT * FROM profiles WHERE name = ?", (id_or_name,)
+                ).fetchone()
+        return self._profile_row(row) if row else None
+
+    @staticmethod
+    def _profile_row(row: sqlite3.Row) -> dict[str, Any]:
+        profile = dict(row)
+        try:
+            profile["filters"] = json.loads(profile["filters"])
+        except (ValueError, TypeError):
+            profile["filters"] = {}
+        return profile
+
     def categories(self) -> list[str]:
         with self._lock:
             rows = self._conn.execute(
@@ -273,6 +430,19 @@ class EventStore:
         """
         clauses: list[str] = []
         params: list[Any] = []
+
+        if not flt.include_hidden:
+            clauses.append("hidden = 0")
+        if flt.favorites_only:
+            clauses.append("favorite = 1")
+
+        if flt.text:
+            needle = f"%{flt.text}%"
+            clauses.append(
+                "(title LIKE ? OR raw_description LIKE ? OR address LIKE ?"
+                " OR category LIKE ? OR schedule_text LIKE ?)"
+            )
+            params.extend([needle] * 5)
 
         if flt.categories:
             marks = ", ".join("?" for _ in flt.categories)
@@ -469,6 +639,13 @@ class EventStore:
 
         if event["address"] is not None:
             event["address"] = str(event["address"]).strip() or None
+
+        # None means "keep existing value" (resolved in save_event).
+        for flag in ("favorite", "hidden"):
+            if flag in data and data[flag] is not None:
+                event[flag] = int(bool(data[flag]))
+            else:
+                event[flag] = None
 
         if event["scraped_at"]:
             event["scraped_at"] = _to_utc_iso(event["scraped_at"], "scraped_at")

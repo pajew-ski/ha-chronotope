@@ -2,7 +2,26 @@ import { LitElement, html, css } from "lit";
 import "./map-view.js";
 import "./filter-bar.js";
 import "./event-list.js";
-import { queryEvents, fetchCategories, fetchIcsUrl, buildWsFilters } from "./api.js";
+import {
+  queryEvents,
+  fetchCategories,
+  fetchIcsUrl,
+  buildWsFilters,
+  listProfiles,
+  saveProfile,
+  deleteProfile,
+} from "./api.js";
+
+function isoToLocalInput(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
 
 const QUERY_DEBOUNCE_MS = 250;
 
@@ -22,6 +41,8 @@ class ChronotopePanel extends LitElement {
     _selectedId: { state: true },
     _icsCopied: { state: true },
     _error: { state: true },
+    _profiles: { state: true },
+    _selectedProfileId: { state: true },
   };
 
   static styles = css`
@@ -95,6 +116,8 @@ class ChronotopePanel extends LitElement {
     this._selectedId = null;
     this._icsCopied = false;
     this._error = null;
+    this._profiles = [];
+    this._selectedProfileId = "";
     this._filters = {
       categories: [],
       radiusEnabled: false,
@@ -106,6 +129,8 @@ class ChronotopePanel extends LitElement {
       timeMode: "allday",
       timeFrom: "",
       timeTo: "",
+      text: "",
+      favoritesOnly: false,
       showZones: true,
     };
     this._initialized = false;
@@ -122,6 +147,7 @@ class ChronotopePanel extends LitElement {
         },
       };
       this._loadCategories();
+      this._loadProfiles();
       this._runQuery();
     }
   }
@@ -139,8 +165,13 @@ class ChronotopePanel extends LitElement {
         .state=${this._filters}
         .categories=${this._categories}
         .icsCopied=${this._icsCopied}
+        .profiles=${this._profiles}
+        .selectedProfileId=${this._selectedProfileId}
         @filters-changed=${this._onFiltersChanged}
         @ics-requested=${this._onIcsRequested}
+        @profile-selected=${this._onProfileSelected}
+        @profile-save=${this._onProfileSave}
+        @profile-delete=${this._onProfileDelete}
       ></chronotope-filter-bar>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       <div class="content ${this.narrow ? "narrow" : ""}">
@@ -228,6 +259,66 @@ class ChronotopePanel extends LitElement {
     }
   }
 
+  async _loadProfiles() {
+    try {
+      const result = await listProfiles(this.hass);
+      this._profiles = result.profiles;
+    } catch (err) {
+      console.error("chronotope: loading profiles failed", err);
+    }
+  }
+
+  _onProfileSelected(ev) {
+    this._selectedProfileId = ev.detail.id;
+    const profile = this._profiles.find((p) => p.id === ev.detail.id);
+    if (profile) this._applyProfileFilters(profile.filters || {});
+  }
+
+  _applyProfileFilters(f) {
+    const center = f.center || this._filters.center;
+    this._filters = {
+      ...this._filters,
+      categories: f.categories || [],
+      radiusEnabled: Boolean(f.center && f.radius_km != null),
+      radiusKm: f.radius_km != null ? f.radius_km : this._filters.radiusKm,
+      center,
+      start: isoToLocalInput(f.start),
+      end: isoToLocalInput(f.end),
+      weekdays: f.weekdays || [],
+      timeMode: f.time_from || f.time_to ? "range" : "allday",
+      timeFrom: f.time_from || "",
+      timeTo: f.time_to || "",
+      text: f.text || "",
+      favoritesOnly: Boolean(f.favorites_only),
+    };
+    this._scheduleQuery();
+  }
+
+  async _onProfileSave(ev) {
+    try {
+      const result = await saveProfile(this.hass, {
+        id: ev.detail.id,
+        name: ev.detail.name,
+        filters: buildWsFilters(this._filters),
+      });
+      await this._loadProfiles();
+      this._selectedProfileId = result.profile.id;
+      this._error = null;
+    } catch (err) {
+      this._error = `Profil speichern fehlgeschlagen: ${err.message || err.code || err}`;
+    }
+  }
+
+  async _onProfileDelete(ev) {
+    try {
+      await deleteProfile(this.hass, ev.detail.id);
+      if (this._selectedProfileId === ev.detail.id) this._selectedProfileId = "";
+      await this._loadProfiles();
+    } catch (err) {
+      this._error = `Profil löschen fehlgeschlagen: ${err.message || err.code || err}`;
+    }
+  }
+
   async _runQuery() {
     if (!this.hass) return;
     try {
@@ -244,7 +335,12 @@ class ChronotopePanel extends LitElement {
 
   async _onIcsRequested() {
     try {
-      const result = await fetchIcsUrl(this.hass, buildWsFilters(this._filters));
+      // With a profile selected the ICS URL references the profile, so the
+      // subscription follows later edits to the profile automatically.
+      const payload = this._selectedProfileId
+        ? { profile_id: this._selectedProfileId }
+        : buildWsFilters(this._filters);
+      const result = await fetchIcsUrl(this.hass, payload);
       await navigator.clipboard.writeText(result.url);
       this._icsCopied = true;
       setTimeout(() => {

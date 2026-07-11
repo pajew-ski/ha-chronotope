@@ -52,6 +52,8 @@ def filter_from_query(query, tz_name: str) -> QueryFilter:
         weekdays=weekdays or None,
         time_from=query.get("time_from"),
         time_to=query.get("time_to"),
+        text=query.get("text"),
+        favorites_only=query.get("favorites") in ("1", "true", "yes"),
         tz_name=tz_name,
         limit=limit,
     )
@@ -81,8 +83,22 @@ class ChronotopeICSView(HomeAssistantView):
         if not hmac.compare_digest(supplied, token):
             return web.Response(status=401, text="Invalid token")
 
+        tz_name = hass.config.time_zone or "UTC"
         try:
-            flt = filter_from_query(request.query, hass.config.time_zone or "UTC")
+            if profile_ref := request.query.get("profile"):
+                profile = await hass.async_add_executor_job(
+                    store.get_profile, profile_ref
+                )
+                if profile is None:
+                    return web.Response(status=404, text="Unknown profile")
+                flt = QueryFilter.from_payload(
+                    profile["filters"],
+                    tz_name=tz_name,
+                    window_start=request.query.get("start"),
+                    window_end=request.query.get("end"),
+                )
+            else:
+                flt = filter_from_query(request.query, tz_name)
             events = await hass.async_add_executor_job(store.query_events, flt)
         except ValueError as err:
             return web.Response(status=400, text=str(err))

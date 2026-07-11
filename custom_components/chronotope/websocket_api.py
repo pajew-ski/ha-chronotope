@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .const import DATA_STORE, DATA_TOKEN, DOMAIN, ICS_VIEW_URL
+from .signals import notify_event_change, notify_profiles_changed
 from .store import EventStore, QueryFilter
 
 _FILTER_SCHEMA = {
@@ -28,6 +29,9 @@ _FILTER_SCHEMA = {
     vol.Optional("weekdays"): [vol.All(int, vol.Range(min=0, max=6))],
     vol.Optional("time_from"): str,
     vol.Optional("time_to"): str,
+    vol.Optional("text"): str,
+    vol.Optional("favorites_only"): bool,
+    vol.Optional("include_hidden"): bool,
     vol.Optional("limit"): vol.All(int, vol.Range(min=1)),
 }
 
@@ -40,6 +44,10 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_categories)
     websocket_api.async_register_command(hass, ws_ics_url)
     websocket_api.async_register_command(hass, ws_lookup_place)
+    websocket_api.async_register_command(hass, ws_flag_event)
+    websocket_api.async_register_command(hass, ws_save_profile)
+    websocket_api.async_register_command(hass, ws_delete_profile)
+    websocket_api.async_register_command(hass, ws_list_profiles)
 
 
 def _get_store(hass: HomeAssistant) -> EventStore | None:
@@ -47,20 +55,7 @@ def _get_store(hass: HomeAssistant) -> EventStore | None:
 
 
 def _build_filter(hass: HomeAssistant, msg: dict[str, Any]) -> QueryFilter:
-    center = msg.get("center") or {}
-    return QueryFilter(
-        categories=msg.get("categories"),
-        center_lat=center.get("lat"),
-        center_lon=center.get("lon"),
-        radius_km=msg.get("radius_km"),
-        window_start=msg.get("start"),
-        window_end=msg.get("end"),
-        weekdays=msg.get("weekdays"),
-        time_from=msg.get("time_from"),
-        time_to=msg.get("time_to"),
-        tz_name=hass.config.time_zone or "UTC",
-        limit=msg.get("limit"),
-    )
+    return QueryFilter.from_payload(msg, tz_name=hass.config.time_zone or "UTC")
 
 
 @websocket_api.websocket_command(
@@ -78,11 +73,18 @@ async def ws_save_event(
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
         return
+    incoming_id = msg["event"].get("id")
+    existed = (
+        incoming_id is not None
+        and await hass.async_add_executor_job(store.get_event, str(incoming_id))
+        is not None
+    )
     try:
         event = await hass.async_add_executor_job(store.save_event, msg["event"])
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_event", str(err))
         return
+    notify_event_change(hass, "updated" if existed else "added", event)
     connection.send_result(msg["id"], {"event": event})
 
 
@@ -102,7 +104,107 @@ async def ws_delete_event(
         connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
         return
     deleted = await hass.async_add_executor_job(store.delete_event, msg["event_id"])
+    if deleted:
+        notify_event_change(hass, "deleted", {"id": msg["event_id"]})
     connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chronotope/events/flag",
+        vol.Required("event_id"): str,
+        vol.Optional("favorite"): bool,
+        vol.Optional("hidden"): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_flag_event(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Toggle favorite/hidden flags on an event."""
+    store = _get_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
+        return
+    event = await hass.async_add_executor_job(
+        lambda: store.set_event_flags(
+            msg["event_id"], msg.get("favorite"), msg.get("hidden")
+        )
+    )
+    if event is None:
+        connection.send_error(msg["id"], "not_found", "Unknown event id")
+        return
+    notify_event_change(hass, "updated", event)
+    connection.send_result(msg["id"], {"event": event})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chronotope/profiles/save",
+        vol.Required("profile"): vol.Schema(
+            {
+                vol.Optional("id"): str,
+                vol.Required("name"): str,
+                vol.Optional("filters"): dict,
+            }
+        ),
+    }
+)
+@websocket_api.async_response
+async def ws_save_profile(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Create or update a named filter profile."""
+    store = _get_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
+        return
+    try:
+        profile = await hass.async_add_executor_job(
+            store.save_profile, msg["profile"]
+        )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_profile", str(err))
+        return
+    notify_profiles_changed(hass)
+    connection.send_result(msg["id"], {"profile": profile})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "chronotope/profiles/delete",
+        vol.Required("profile_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_delete_profile(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Delete a filter profile."""
+    store = _get_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
+        return
+    deleted = await hass.async_add_executor_job(
+        store.delete_profile, msg["profile_id"]
+    )
+    if deleted:
+        notify_profiles_changed(hass)
+    connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "chronotope/profiles/list"})
+@websocket_api.async_response
+async def ws_list_profiles(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """List stored filter profiles."""
+    store = _get_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_ready", "Chronotope is not set up")
+        return
+    profiles = await hass.async_add_executor_job(store.list_profiles)
+    connection.send_result(msg["id"], {"profiles": profiles})
 
 
 @websocket_api.websocket_command(
@@ -165,6 +267,7 @@ async def ws_lookup_place(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "chronotope/ics_url",
+        vol.Optional("profile_id"): str,
         **_FILTER_SCHEMA,
     }
 )
@@ -179,6 +282,16 @@ async def ws_ics_url(
         return
 
     params: list[tuple[str, str]] = [("token", token)]
+    if msg.get("profile_id"):
+        params.append(("profile", msg["profile_id"]))
+        try:
+            base = get_url(hass, prefer_external=True, allow_cloud=False)
+        except NoURLAvailableError:
+            base = ""
+        connection.send_result(
+            msg["id"], {"url": f"{base}{ICS_VIEW_URL}?{urlencode(params)}"}
+        )
+        return
     for category in msg.get("categories") or []:
         params.append(("category", category))
     center = msg.get("center") or {}
