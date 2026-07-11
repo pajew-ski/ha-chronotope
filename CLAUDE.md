@@ -2,78 +2,119 @@
 
 ## Projekt
 
-Domänenoffene Geo-Zeit-Event-Engine als Home-Assistant-Custom-Integration.
-Events sind Objekte mit Ort, Zeitspanne und Kategorie aus beliebigen Quellen
-(Scraper, manuelle Eingabe, andere Integrationen). Kern und Schema bleiben
+Domänenoffene Geo-Zeit-Event-Engine als Home-Assistant-Custom-Integration,
+ausgebaut zur Personal-Intelligence-Anwendung: Events sind Objekte mit Ort,
+Zeitspanne und Kategorie aus beliebigen Quellen (Scraper, REST-Ingest,
+Importer, manuelle Eingabe, LLM-Extraktion). Kern und Schema bleiben
 domänenneutral — die Engine weiß nicht, ob ein Event ein Flohmarkt, eine
-Straßensperrung oder eine Sternschnuppennacht ist.
+Straßensperrung oder eine Sternschnuppennacht ist. Das Persönliche
+(Profile, Kalender, Sensoren, Digest, Näheerkennung, Besuchshistorie)
+lebt in der HA-Schicht.
 
 ## Architektur
 
-Vier Teile, alle unter `custom_components/chronotope/`:
+Alle Teile unter `custom_components/chronotope/`:
 
 1. **Store** (`store.py`): SQLite-Datenbank (`<config>/chronotope.db`).
    Bewusst frei von Home-Assistant-Imports, damit sie ohne HA testbar ist.
    Die HA-Schicht ruft alle Operationen über `hass.async_add_executor_job`
-   auf. Neben `events` gibt es eine `places`-Tabelle als Adress-Geo-Cache
-   (normalisierter Adress-Key → Lat/Lon): Ein Event mit Adresse *und*
-   Koordinaten füllt den Cache, ein Event mit Adresse *ohne* Koordinaten
-   bekommt sie beim Speichern automatisch aus dem Cache — Geocoding selbst
-   bleibt Sache der Quelle (kein externer Request im Kern). Schema-Upgrades
-   laufen beim Öffnen in-place über `ALTER TABLE` (`_MIGRATED_COLUMNS`).
-   Filter:
+   auf. Tabellen:
+   - `events` — das Event-Schema unten
+   - `places` — Adress-Geo-Cache (normalisierter Adress-Key → Lat/Lon):
+     Event mit Adresse *und* Koordinaten füllt den Cache, Event mit Adresse
+     *ohne* Koordinaten bekommt sie beim Speichern automatisch — Geocoding
+     selbst bleibt Sache der Quelle (kein externer Request im Kern)
+   - `profiles` — benannte Filterprofile (JSON-Payload im WS-Filterformat);
+     speisen Panel, Kalender-Entities, Sensoren, Digest und ICS-Abos
+   - `visits` — Besuchshistorie (Event × Person, first/last_seen), gefüllt
+     von der Näheerkennung; hängt als `visits` an Query-Ergebnissen
+
+   Schema-Upgrades laufen beim Öffnen in-place über `ALTER TABLE`
+   (`_MIGRATED_COLUMNS`). Filter (`QueryFilter`, kombinierbar):
    - Kategorie (eine oder mehrere, exakter Match)
    - Radius um Lat/Lon-Punkt via Haversine (als SQLite-Funktion registriert)
    - Zeitfenster-Überlappung (`start < window_end AND end > window_start`)
-     auf UTC-normalisierten ISO-8601-Strings, dadurch lexikographisch
-     vergleichbar
+     auf UTC-normalisierten ISO-8601-Strings (lexikographisch vergleichbar)
    - Wochentag-/Uhrzeit-Maske (ganztags oder `HH:MM`-Bereich, in der
      HA-Zeitzone ausgewertet)
+   - Textsuche (Substring über Titel/Beschreibung/Adresse/Kategorie/
+     schedule_text), `favorites_only`, `include_hidden`
    - RRULE-Events werden mit `dateutil.rrule` expandiert (Core-Dependency
-     von HA, kein eigenes Requirement) und gegen Fenster + Maske geprüft;
-     gematchte Vorkommen landen als `occurrences` (UTC) in der Antwort.
-     Die Expansion läuft in der Query-Zeitzone (HA-Konfiguration), damit
-     BYHOUR/BYDAY lokale Uhrzeit bedeuten und über DST-Wechsel stabil
-     bleiben. Einschränkung ICS-Export: dort steht DTSTART in UTC, daher
-     interpretieren Kalender-Clients RRULE-Uhrzeiten in UTC und
-     wiederkehrende Termine verschieben sich dort über DST-Grenzen um
-     eine Stunde (korrekt wäre TZID+VTIMEZONE — bewusst aufgeschoben).
+     von HA) und gegen Fenster + Maske geprüft; gematchte Vorkommen landen
+     als `occurrences` (UTC) in der Antwort. Die Expansion läuft in der
+     Query-Zeitzone, damit BYHOUR/BYDAY lokale Uhrzeit bedeuten und über
+     DST-Wechsel stabil bleiben.
+
+   Weitere Store-Funktionen: **Dedupe** beim Speichern (`dedupe=True`:
+   gleicher Titel case-insensitiv + gleiche RRULE + Start ±12 h + gleicher
+   Ort — Adress-Key, sonst ≤300 m, sonst beide ortlos — wird in das
+   bestehende Event gemerged; Nutzer-Flags überleben), **purge**
+   (Events älter N Tage; wiederkehrende nur bei ausgelaufener Regel),
+   **source_stats/stats** (Quellen-Health), **backup** (SQLite-Backup-API),
+   `set_event_flags` (favorite/hidden ohne Datenverlust).
 
 2. **WebSocket-API** (`websocket_api.py`): Befehle
-   - `chronotope/events/save` — Upsert, generiert `id`, wenn keine übergeben
-   - `chronotope/events/delete` — Löschen per ID
-   - `chronotope/events/query` — alle Filter kombinierbar; mit Center wird
-     `distance_km` berechnet und danach sortiert, sonst nach Startzeit
-   - `chronotope/categories` — distinct Kategorien für die Filter-UI
-   - `chronotope/ics_url` — Abo-URL inkl. Token für den ICS-Export
-   - `chronotope/places/lookup` — Adress-Geo-Cache-Lookup (für Scraper)
+   - `chronotope/events/save` (Upsert, optional `dedupe`), `events/delete`,
+     `events/flag` (favorite/hidden), `events/query` (alle Filter; mit
+     Center wird `distance_km` berechnet und sortiert)
+   - `chronotope/categories`, `chronotope/stats`
+   - `chronotope/profiles/save|delete|list`
+   - `chronotope/ics_url` (Filter- oder Profil-basiert)
+   - `chronotope/places/lookup` (Adress-Geo-Cache)
+   Schreiboperationen feuern `chronotope_event_added|updated|deleted` auf
+   dem HA-Bus plus interne Dispatcher-Signale (`signals.py`) für die
+   Entity-Aktualisierung.
 
-3. **Custom Panel** (`frontend/`-Quellcode → Bundle in
+3. **HTTP** (`http.py`):
+   - `GET /api/chronotope/calendar.ics?token=…` — ICS-Export (RFC 5545:
+     CRLF, 75-Oktett-Folding, Escaping). Einmalige Events in UTC;
+     wiederkehrende mit `DTSTART;TZID=<HA-Zeitzone>` + generiertem
+     VTIMEZONE (Observance-Liste via Offset-Scan), damit lokale Uhrzeiten
+     über DST-Grenzen stabil bleiben. Filter als Query-Parameter
+     (`category`, `lat/lon/radius`, `start/end`, `weekday`, `time_from/to`,
+     `text`, `favorites`) oder `profile=<id-oder-Name>`.
+   - `POST /api/chronotope/events` — REST-Ingest für Scraper (einzelnes
+     Objekt, Liste oder `{"events": […]}`; Dedupe per Default an,
+     `?dedupe=0` aus). Beide Endpoints sind unauthenticated, aber durch das
+     bei Setup generierte Token geschützt (Query-Param `token` oder
+     `Authorization: Bearer`; persistiert in `.storage/chronotope`).
+
+4. **HA-Schicht**:
+   - `calendar.py` — eine Kalender-Entity pro Profil + „Alle Events";
+     Occurrences wiederkehrender Events werden zu konkreten Terminen,
+     unscharfe Events tragen „~" + schedule_text
+   - `sensor.py` — pro Profil „nächstes Event" (Timestamp + Attribute) und
+     „Events heute"; global ein Statistik-Sensor (Quellen-Health in den
+     Attributen). Entities entstehen/verschwinden mit den Profilen
+     (`entity.py`), aktualisieren per Dispatcher + 15-min-Poll.
+   - `services.py` — `add_event`, `delete_event`, `query` (Response),
+     `lookup_place`, `digest` (Text-Digest, optional notify-Versand und
+     Frei-/Belegt-Abgleich via `calendar.get_events`), `purge`, `backup`,
+     `import_ics`, `import_geojson`, `import_gpx`, `extract_event`
+     (experimentell, via `conversation.process`)
+   - `nearby.py` — Näheerkennung: `person.*`-Listener feuert
+     `chronotope_nearby` (Cooldown 2 h pro Person+Event, 50-m-Bewegungs-
+     schwelle) und schreibt die Besuchshistorie. Optionen (Radius, an/aus)
+     im Options-Flow, Entry lädt bei Änderung neu.
+
+5. **Custom Panel** (`frontend/`-Quellcode → Bundle in
    `custom_components/chronotope/frontend/chronotope-panel.js`):
-   Lit 3, alle Abhängigkeiten (Lit, Leaflet inkl. CSS) via esbuild vendored,
-   kein CDN. Leaflet-Karte mit OpenStreetMap-Tiles; im Darkmode werden die
-   Tiles per CSS-Filter invertiert. UI nutzt ausschließlich HA-Theme-Variablen
-   (`--card-background-color`, `--primary-text-color`, …) und folgt
-   `hass.themes.darkMode`. Events rendern als CircleMarker (Punkt) oder als
-   `L.geoJSON`-Layer (Lines/Shapes aus dem optionalen `geometry`-Feld).
-   Filter-UI (Kategorie-Chips, Radius-Slider mit setzbarem Center per
-   Kartenklick, Zeitfenster, Wochentage ganztags oder mit Uhrzeitbereich)
-   speist die WebSocket-Abfrage; Ergebnisliste ist nach Distanz sortiert.
-   HA-Zonen (inkl. Zuhause) werden als zuschaltbarer Layer direkt aus
-   `hass.states` gerendert (`zone.*` hat Lat/Lon/Radius) — HA-Areas/Bereiche
-   haben keine Koordinaten und können deshalb nicht dargestellt werden.
-   Events mit `time_precision: approximate` erscheinen gestrichelt und
-   zeigen `schedule_text` statt konkreter Termine.
-
-4. **ICS-Export** (`ics.py` + `http.py`): HTTP-Endpoint
-   `GET /api/chronotope/calendar.ics?token=<secret>` liefert die gefilterten
-   Events als gültiges iCalendar (RFC 5545: CRLF, 75-Oktett-Folding,
-   Text-Escaping, UTC-Zeiten, RRULE-Passthrough). Der Endpoint ist
-   unauthenticated, aber durch ein bei Setup generiertes Token (persistiert
-   in `.storage/chronotope`) geschützt — so ist er von Kalender-Clients
-   (HA Remote Calendar, CalDAV-Clients, Thunderbird, …) abonnierbar.
-   Filter als Query-Parameter: `category` (mehrfach), `lat`/`lon`/`radius`,
-   `start`/`end`, `weekday` (mehrfach, 0=Mo), `time_from`/`time_to`.
+   Lit 3, alle Abhängigkeiten (Lit, Leaflet, leaflet.markercluster inkl.
+   CSS) via esbuild vendored, kein CDN. Leaflet-Karte mit OSM-Tiles
+   (Darkmode: CSS-Invert-Filter), UI ausschließlich über HA-Theme-Variablen.
+   Punkt-Events clustern; `geometry` (GeoJSON) rendert als `L.geoJSON`;
+   HA-Zonen (inkl. Zuhause) als zuschaltbarer Layer aus `hass.states`
+   (`zone.*` hat Lat/Lon/Radius — HA-Areas/Bereiche haben keine Koordinaten
+   und sind darum nicht darstellbar). Filter-UI: Profile (speichern/laden/
+   löschen), Textsuche, nur-Favoriten, Kategorie-Chips, Radius-Slider mit
+   Kartenklick-Center, Zeitfenster mit Tages-Slider (clientseitig),
+   Wochentage ganztags/Uhrzeitbereich, Zonen-Toggle, ICS-Button
+   (profilbasiert, wenn Profil gewählt), Statistik-Block. Ergebnisliste
+   distanzsortiert mit Favoriten-Stern, Ausblenden, „besucht"-Badge,
+   Quelle und Edit-Button. Event-Editor als Overlay: alle Felder,
+   Punkt per Kartenklick, Linien/Flächen per Klick-Aufzeichnung mit
+   Vorschau, Routing-Link (OSM) im Popup. Unscharfe Events erscheinen
+   gestrichelt und zeigen `schedule_text` statt konkreter Termine.
 
 ## Event-Schema
 
@@ -97,41 +138,44 @@ address          TEXT  optionale Adresse; speist/nutzt den places-Cache
 time_precision   TEXT  exact (Default) | approximate — markiert unscharfe
                        Zeitangaben („ca. 2x im Monat")
 schedule_text    TEXT  Original-Wortlaut der Zeitangabe für die Anzeige
+favorite         INT   Nutzer-Flag (überlebt Scraper-Re-Saves und Dedupe)
+hidden           INT   Nutzer-Flag; ausgeblendete Events filtert die Query
 ```
-
-`geometry`, `address`, `time_precision` und `schedule_text` sind
-Erweiterungen gegenüber dem Minimalschema. Kern-Logik (Radius, Distanz)
-nutzt ausschließlich lat/lon.
 
 **Unscharfe Termine:** Das Matching läuft immer über die vorhandene
 RRULE-Maschinerie — die Quelle legt eine Best-Effort-RRULE ab
 („Di+Do um 18 oder 20 Uhr" → `FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=18,20`,
 „~2x im Monat mittwochs" → `FREQ=WEEKLY;BYDAY=WE`), Filter und Karte
-funktionieren dadurch unverändert (Recall vor Präzision: lieber anzeigen
-als verpassen). `time_precision: approximate` + `schedule_text` sorgen
-dafür, dass UI und ICS-Export die Unschärfe ausweisen („~ mittwochs
-18 Uhr, ca. 2x im Monat") statt exakte Termine vorzutäuschen.
+funktionieren dadurch unverändert (Recall vor Präzision).
+`time_precision: approximate` + `schedule_text` sorgen dafür, dass UI,
+Kalender-Entities und ICS-Export die Unschärfe ausweisen.
 
 ## Entwicklung
 
 - **Frontend bauen:** `cd frontend && npm ci && npm run build`
   — schreibt das Bundle nach
   `custom_components/chronotope/frontend/chronotope-panel.js`.
-  Das Bundle ist committed (vendored), damit die Integration ohne
-  Build-Schritt installierbar ist. Nach Änderungen an `frontend/src/`
+  Das Bundle ist committed (vendored). Nach Änderungen an `frontend/src/`
   immer neu bauen und das Bundle mitcommitten.
 - **Tests:** `python3 -m unittest discover -s tests` — bewusst ohne
-  `homeassistant`-Abhängigkeit; getestet werden `store.py` und `ics.py`.
+  `homeassistant`-Abhängigkeit; getestet werden `store.py`, `ics.py`
+  und `importers.py`. Die Tests laden Module via `tests/helpers.py`
+  (importlib), damit `calendar.py` nicht das Stdlib-Modul verschattet.
 - **Installation:** Repo via HACS (Custom Repository) oder
-  `custom_components/chronotope` nach `<config>/custom_components/` kopieren,
+  `custom_components/chronotope` nach `<config>/custom_components/`,
   dann Integration „Chronotope" über die UI hinzufügen (Config Flow,
-  Single Instance, keine Optionen).
+  Single Instance; Optionen: Näheerkennung an/aus + Radius).
 
 ## Konventionen
 
-- `store.py` und `ics.py` importieren kein Home Assistant — nur Stdlib
-  und `dateutil`. HA-spezifisches lebt in `__init__.py`, `http.py`,
-  `websocket_api.py`, `config_flow.py`.
+- `store.py`, `ics.py` und `importers.py` importieren kein Home Assistant —
+  nur Stdlib und `dateutil`. HA-spezifisches lebt in `__init__.py`,
+  `http.py`, `websocket_api.py`, `services.py`, `calendar.py`, `sensor.py`,
+  `nearby.py`, `entity.py`, `signals.py`, `config_flow.py`.
 - Zeiten intern immer UTC-ISO-8601 (`+00:00`); Wochentag-/Uhrzeit-Filter
-  werden in der übergebenen IANA-Zeitzone (HA-Konfiguration) ausgewertet.
-- Kein CDN, keine externen Requests im Frontend außer OSM-Tiles.
+  und RRULE-Expansion werden in der HA-Zeitzone ausgewertet.
+- Kein CDN, keine externen Requests im Frontend außer OSM-Tiles; der Kern
+  macht kein Geocoding (places-Cache statt externer Lookups). Externe
+  Requests im Backend nur nutzerinitiiert (`import_*` mit URL).
+- Schreibpfade feuern immer `notify_event_change`/`notify_profiles_changed`
+  (`signals.py`), sonst veralten Kalender/Sensoren.
