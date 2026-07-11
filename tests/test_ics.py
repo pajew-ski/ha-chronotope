@@ -1,13 +1,11 @@
 """Tests for the RFC 5545 generator."""
 
-import sys
 import unittest
 from datetime import datetime, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components" / "chronotope"))
+from helpers import load_module
 
-from ics import events_to_ics  # noqa: E402
+events_to_ics = load_module("ics").events_to_ics
 
 NOW = datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc)
 

@@ -414,6 +414,32 @@ class EventStore:
             profile["filters"] = {}
         return profile
 
+    def stats(self) -> dict[str, Any]:
+        """Aggregate statistics for sensors and the panel."""
+        with self._lock:
+            total = self._conn.execute(
+                "SELECT COUNT(*) AS c FROM events"
+            ).fetchone()["c"]
+            categories = {
+                row["category"] or "(ohne)": row["c"]
+                for row in self._conn.execute(
+                    "SELECT category, COUNT(*) AS c FROM events"
+                    " GROUP BY category ORDER BY c DESC"
+                )
+            }
+            places = self._conn.execute(
+                "SELECT COUNT(*) AS c FROM places"
+            ).fetchone()["c"]
+            profiles = self._conn.execute(
+                "SELECT COUNT(*) AS c FROM profiles"
+            ).fetchone()["c"]
+        return {
+            "total_events": total,
+            "categories": categories,
+            "places": places,
+            "profiles": profiles,
+        }
+
     def categories(self) -> list[str]:
         with self._lock:
             rows = self._conn.execute(

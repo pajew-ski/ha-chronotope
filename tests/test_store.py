@@ -1,14 +1,16 @@
 """Tests for the HA-free SQLite store."""
 
 import sqlite3
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components" / "chronotope"))
+from helpers import load_module
 
-from store import EventStore, QueryFilter, haversine_km  # noqa: E402
+_store = load_module("store")
+EventStore = _store.EventStore
+QueryFilter = _store.QueryFilter
+haversine_km = _store.haversine_km
 
 BERLIN = {"lat": 52.5200, "lon": 13.4050}
 POTSDAM = {"lat": 52.3906, "lon": 13.0645}

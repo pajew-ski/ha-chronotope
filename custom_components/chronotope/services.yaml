@@ -1,0 +1,187 @@
+add_event:
+  name: Event hinzufügen
+  description: >-
+    Legt ein Event an oder aktualisiert es (Upsert per id). Zeiten als
+    ISO 8601 mit Zeitzone; eine Adresse ohne Koordinaten wird aus dem
+    Adress-Geo-Cache aufgelöst, falls bekannt.
+  fields:
+    title:
+      name: Titel
+      required: true
+      example: "Flohmarkt Boxhagener Platz"
+      selector:
+        text:
+    start_time:
+      name: Beginn
+      required: true
+      example: "2026-07-12T10:00:00+02:00"
+      selector:
+        text:
+    end_time:
+      name: Ende
+      required: true
+      example: "2026-07-12T16:00:00+02:00"
+      selector:
+        text:
+    category:
+      name: Kategorie
+      example: "market"
+      selector:
+        text:
+    address:
+      name: Adresse
+      example: "Boxhagener Platz 1, 10245 Berlin"
+      selector:
+        text:
+    lat:
+      name: Breitengrad
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: any
+          mode: box
+    lon:
+      name: Längengrad
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: any
+          mode: box
+    recurrence:
+      name: Wiederholung (RRULE)
+      example: "FREQ=WEEKLY;BYDAY=SU"
+      selector:
+        text:
+    time_precision:
+      name: Zeit-Präzision
+      selector:
+        select:
+          options:
+            - exact
+            - approximate
+    schedule_text:
+      name: Zeitangabe (Wortlaut)
+      example: "mittwochs 18 Uhr, ca. 2x im Monat"
+      selector:
+        text:
+    source_name:
+      name: Quelle
+      selector:
+        text:
+    source_url:
+      name: Quell-URL
+      selector:
+        text:
+    confidence:
+      name: Konfidenz
+      selector:
+        select:
+          options:
+            - verified
+            - scraped
+            - inferred
+    raw_description:
+      name: Beschreibung
+      selector:
+        text:
+          multiline: true
+
+delete_event:
+  name: Event löschen
+  description: Löscht ein Event per id.
+  fields:
+    event_id:
+      name: Event-ID
+      required: true
+      selector:
+        text:
+
+query:
+  name: Events abfragen
+  description: >-
+    Fragt Events mit kombinierbaren Filtern ab (Antwort als Response-Daten).
+    Entweder ein gespeichertes Profil angeben oder Einzelfilter.
+  fields:
+    profile:
+      name: Profil (ID oder Name)
+      selector:
+        text:
+    categories:
+      name: Kategorien
+      selector:
+        object:
+    lat:
+      name: Breitengrad (Zentrum)
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: any
+          mode: box
+    lon:
+      name: Längengrad (Zentrum)
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: any
+          mode: box
+    radius_km:
+      name: Radius (km)
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: any
+          mode: box
+    start:
+      name: Fensterbeginn
+      example: "2026-07-11T00:00:00+02:00"
+      selector:
+        text:
+    end:
+      name: Fensterende
+      selector:
+        text:
+    weekdays:
+      name: Wochentage (0=Mo)
+      selector:
+        object:
+    time_from:
+      name: Uhrzeit von
+      example: "18:00"
+      selector:
+        text:
+    time_to:
+      name: Uhrzeit bis
+      selector:
+        text:
+    text:
+      name: Textsuche
+      selector:
+        text:
+    favorites_only:
+      name: Nur Favoriten
+      selector:
+        boolean:
+    limit:
+      name: Limit
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+
+lookup_place:
+  name: Adresse nachschlagen
+  description: >-
+    Liefert gecachte Koordinaten zu einer Adresse aus dem Adress-Geo-Cache
+    (Antwort als Response-Daten).
+  fields:
+    address:
+      name: Adresse
+      required: true
+      selector:
+        text:

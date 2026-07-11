@@ -8,10 +8,12 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from . import websocket_api
+from .services import async_register_services
 from .const import (
     DATA_STORE,
     DATA_TOKEN,
@@ -31,6 +33,8 @@ from .http import ChronotopeICSView
 from .store import EventStore
 
 DATA_STATIC_REGISTERED = "static_registered"
+
+PLATFORMS = [Platform.CALENDAR, Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -81,11 +85,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         embed_iframe=False,
     )
 
+    async_register_services(hass)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the config entry."""
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
     frontend.async_remove_panel(hass, PANEL_URL_PATH)
     domain_data = hass.data.get(DOMAIN, {})
     event_store: EventStore | None = domain_data.pop(DATA_STORE, None)
