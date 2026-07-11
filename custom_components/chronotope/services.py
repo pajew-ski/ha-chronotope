@@ -30,6 +30,7 @@ from .store import (
     TIME_PRECISION_VALUES,
     EventStore,
     QueryFilter,
+    haversine_km,
 )
 
 _EVENT_SCHEMA = vol.Schema(
@@ -431,6 +432,108 @@ def async_register_services(hass: HomeAssistant) -> None:
             saved = True
         return {"event": extracted, "saved": saved}
 
+    async def handle_match_visits(call: ServiceCall) -> ServiceResponse:
+        """Retroactively fill the visit history from recorder data.
+
+        Only reaches as far back as the recorder retention (purge_keep_days,
+        default 10) — older positions simply no longer exist.
+        """
+        store = _get_store(hass)
+        if "recorder" not in hass.config.components:
+            raise HomeAssistantError(
+                "Recorder integration is not available; match_visits needs it"
+            )
+        # Lazy import: recorder is the one heavyweight HA dependency here.
+        from homeassistant.components.recorder import get_instance, history
+
+        days = call.data.get("days", 10)
+        radius_km = call.data.get("radius_km", 0.5)
+        persons = call.data.get("person_entities") or hass.states.async_entity_ids(
+            "person"
+        )
+        if not persons:
+            return {"matched": 0, "visits": []}
+
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(days=days)
+        states_by_person = await get_instance(hass).async_add_executor_job(
+            lambda: history.get_significant_states(
+                hass,
+                start,
+                now,
+                list(persons),
+                significant_changes_only=False,
+                minimal_response=False,
+            )
+        )
+
+        flt = QueryFilter(
+            window_start=start.isoformat(),
+            window_end=now.isoformat(),
+            include_hidden=True,
+            tz_name=hass.config.time_zone or "UTC",
+        )
+        events = await hass.async_add_executor_job(store.query_events, flt)
+
+        # Plain (time, lat, lon) samples per person for the executor job.
+        samples: dict[str, list[tuple[datetime, float, float]]] = {}
+        for person_id, states in (states_by_person or {}).items():
+            rows = []
+            for state in states:
+                lat = state.attributes.get("latitude")
+                lon = state.attributes.get("longitude")
+                if lat is None or lon is None:
+                    continue
+                rows.append((state.last_updated, lat, lon))
+            if rows:
+                samples[person_id] = rows
+
+        def _match() -> list[dict[str, Any]]:
+            matched: list[dict[str, Any]] = []
+            for event in events:
+                if event.get("lat") is None:
+                    continue
+                pairs = event.get("occurrences") or [
+                    [event["start_time"], event["end_time"]]
+                ]
+                windows = [
+                    (datetime.fromisoformat(s), datetime.fromisoformat(e))
+                    for s, e in pairs
+                ]
+                for person_id, rows in samples.items():
+                    hit = next(
+                        (
+                            (when, lat, lon)
+                            for when, lat, lon in rows
+                            if any(ws <= when <= we for ws, we in windows)
+                            and (
+                                haversine_km(lat, lon, event["lat"], event["lon"])
+                                or 1e9
+                            )
+                            <= radius_km
+                        ),
+                        None,
+                    )
+                    if hit is None:
+                        continue
+                    store.record_visit(
+                        event["id"], person_id, seen_at=hit[0].isoformat()
+                    )
+                    matched.append(
+                        {
+                            "event_id": event["id"],
+                            "title": event["title"],
+                            "person_id": person_id,
+                            "seen_at": hit[0].isoformat(),
+                        }
+                    )
+            return matched
+
+        matched = await hass.async_add_executor_job(_match)
+        if matched:
+            notify_event_change(hass, "updated", None)
+        return {"matched": len(matched), "visits": matched}
+
     async def handle_purge(call: ServiceCall) -> ServiceResponse:
         store = _get_store(hass)
         deleted = await hass.async_add_executor_job(
@@ -569,6 +672,21 @@ def async_register_services(hass: HomeAssistant) -> None:
                 vol.Optional("title"): cv.string,
                 vol.Optional("notify_service"): cv.string,
                 vol.Optional("check_calendars"): [cv.entity_id],
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "match_visits",
+        handle_match_visits,
+        schema=vol.Schema(
+            {
+                vol.Optional("days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
+                vol.Optional("radius_km"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.05, max=50)
+                ),
+                vol.Optional("person_entities"): [cv.entity_id],
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,

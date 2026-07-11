@@ -21,6 +21,8 @@ class ChronotopeMapView extends LitElement {
     radiusKm: { attribute: false },
     radiusEnabled: { attribute: false },
     zones: { attribute: false },
+    persons: { attribute: false },
+    geoMarkers: { attribute: false },
     capture: { attribute: false },
     selectedId: { attribute: false },
     dark: { type: Boolean, reflect: true },
@@ -87,6 +89,35 @@ class ChronotopeMapView extends LitElement {
         line-height: 24px;
         text-align: center;
       }
+      .person-icon {
+        border-radius: 50%;
+        border: 2px solid var(--primary-color, #03a9f4);
+        background: var(--card-background-color, #fff);
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      }
+      .person-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .person-icon .initial {
+        display: block;
+        width: 100%;
+        height: 100%;
+        text-align: center;
+        line-height: 24px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--primary-color, #03a9f4);
+      }
+      .geo-feed-icon {
+        background: var(--info-color, #2196f3);
+        border: 1px solid var(--card-background-color, #fff);
+        transform: rotate(45deg);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+      }
       :host([data-capturing]) #map {
         cursor: crosshair;
       }
@@ -99,11 +130,15 @@ class ChronotopeMapView extends LitElement {
     this.radiusKm = 10;
     this.radiusEnabled = false;
     this.zones = [];
+    this.persons = [];
+    this.geoMarkers = [];
     this.capture = null;
     this.dark = false;
     this._markersById = new Map();
     this._didInitialFit = false;
     this._zonesSignature = "";
+    this._personsSignature = "";
+    this._geoSignature = "";
   }
 
   render() {
@@ -122,6 +157,8 @@ class ChronotopeMapView extends LitElement {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(this._map);
     this._zoneLayer = L.layerGroup().addTo(this._map);
+    this._geoFeedLayer = L.layerGroup().addTo(this._map);
+    this._personLayer = L.layerGroup().addTo(this._map);
     this._shapeLayer = L.featureGroup().addTo(this._map);
     this._clusterGroup = L.markerClusterGroup({
       maxClusterRadius: 40,
@@ -141,6 +178,8 @@ class ChronotopeMapView extends LitElement {
     this._renderEvents();
     this._renderRadius();
     this._renderZones();
+    this._renderPersons();
+    this._renderGeoMarkers();
   }
 
   disconnectedCallback() {
@@ -157,6 +196,8 @@ class ChronotopeMapView extends LitElement {
       this._renderRadius();
     }
     if (changed.has("zones")) this._renderZones();
+    if (changed.has("persons")) this._renderPersons();
+    if (changed.has("geoMarkers")) this._renderGeoMarkers();
     if (changed.has("capture")) this._renderCapture();
     if (changed.has("selectedId") && this.selectedId) {
       this._focusEvent(this.selectedId);
@@ -317,6 +358,57 @@ class ChronotopeMapView extends LitElement {
           keyboard: false,
         }).addTo(this._zoneLayer);
       }
+    }
+  }
+
+  _renderPersons() {
+    if (!this._map) return;
+    const signature = JSON.stringify(this.persons || []);
+    if (signature === this._personsSignature) return;
+    this._personsSignature = signature;
+    this._personLayer.clearLayers();
+    for (const person of this.persons || []) {
+      const content = person.picture
+        ? `<img src="${person.picture}" alt="" />`
+        : `<span class="initial">${(person.name || "?")[0].toUpperCase()}</span>`;
+      L.marker([person.lat, person.lon], {
+        icon: L.divIcon({
+          className: "person-icon",
+          html: content,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        }),
+        keyboard: false,
+        zIndexOffset: 1000,
+      })
+        .bindTooltip(`${person.name} (${person.state})`)
+        .addTo(this._personLayer);
+    }
+  }
+
+  _renderGeoMarkers() {
+    if (!this._map) return;
+    const signature = JSON.stringify(this.geoMarkers || []);
+    if (signature === this._geoSignature) return;
+    this._geoSignature = signature;
+    this._geoFeedLayer.clearLayers();
+    for (const marker of this.geoMarkers || []) {
+      L.marker([marker.lat, marker.lon], {
+        icon: L.divIcon({
+          className: "geo-feed-icon",
+          html: "",
+          iconSize: [12, 12],
+          iconAnchor: [6, 6],
+        }),
+        keyboard: false,
+      })
+        .bindTooltip(
+          `${marker.name} — ${marker.source}` +
+            (marker.distance && marker.distance !== "unknown"
+              ? ` (${marker.distance} ${marker.unit})`
+              : "")
+        )
+        .addTo(this._geoFeedLayer);
     }
   }
 

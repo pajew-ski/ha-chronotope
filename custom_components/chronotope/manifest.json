@@ -1,6 +1,7 @@
 {
   "domain": "chronotope",
   "name": "Chronotope",
+  "after_dependencies": ["recorder", "calendar", "conversation"],
   "codeowners": ["@pajew-ski"],
   "config_flow": true,
   "dependencies": ["http", "websocket_api", "frontend", "panel_custom"],

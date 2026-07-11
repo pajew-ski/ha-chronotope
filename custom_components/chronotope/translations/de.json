@@ -16,7 +16,8 @@
         "title": "Chronotope Optionen",
         "data": {
           "nearby_enabled": "Näheerkennung aktivieren (chronotope_nearby-Events, Besuchshistorie)",
-          "nearby_radius_km": "Radius für Näheerkennung (km)"
+          "nearby_radius_km": "Radius für Näheerkennung (km)",
+          "geoloc_ingest_enabled": "geo_location-Entities als Events übernehmen (Erdbeben-/Katastrophen-/GeoJSON-Feeds)"
         }
       }
     }

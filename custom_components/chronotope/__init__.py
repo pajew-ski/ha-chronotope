@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from . import websocket_api
+from .geoloc import async_setup_geoloc_ingest
 from .nearby import async_setup_nearby
 from .services import async_register_services
 from .const import (
@@ -89,6 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async_register_services(hass)
     async_setup_nearby(hass, entry)
+    async_setup_geoloc_ingest(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

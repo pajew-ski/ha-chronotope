@@ -19,7 +19,12 @@ import {
 
 const QUERY_DEBOUNCE_MS = 250;
 // Filter keys that only change the display, not the server query.
-const DISPLAY_ONLY_KEYS = new Set(["showZones", "dayFilter"]);
+const DISPLAY_ONLY_KEYS = new Set([
+  "showZones",
+  "showPersons",
+  "showGeoFeeds",
+  "dayFilter",
+]);
 
 function isoToLocalInput(iso) {
   if (!iso) return "";
@@ -156,6 +161,8 @@ class ChronotopePanel extends LitElement {
       text: "",
       favoritesOnly: false,
       showZones: true,
+      showPersons: true,
+      showGeoFeeds: true,
       dayFilter: "",
     };
     this._initialized = false;
@@ -239,6 +246,8 @@ class ChronotopePanel extends LitElement {
           .radiusKm=${this._filters.radiusKm}
           .radiusEnabled=${this._filters.radiusEnabled}
           .zones=${this._filters.showZones ? this._haZones() : []}
+          .persons=${this._filters.showPersons ? this._haPersons() : []}
+          .geoMarkers=${this._filters.showGeoFeeds ? this._haGeoLocations() : []}
           .capture=${this._capture}
           .selectedId=${this._selectedId}
           .dark=${dark}
@@ -291,6 +300,39 @@ class ChronotopePanel extends LitElement {
       });
     }
     return zones;
+  }
+
+  /** Live positions of person.* entities (photo or initial as marker). */
+  _haPersons() {
+    const states = this.hass?.states || {};
+    return Object.values(states)
+      .filter((st) => st.entity_id.startsWith("person."))
+      .map((st) => ({
+        id: st.entity_id,
+        name: st.attributes.friendly_name || st.entity_id,
+        lat: st.attributes.latitude,
+        lon: st.attributes.longitude,
+        picture: st.attributes.entity_picture || null,
+        state: st.state,
+      }))
+      .filter((person) => person.lat != null && person.lon != null);
+  }
+
+  /** geo_location.* entities (earthquake/disaster/GeoJSON feeds). */
+  _haGeoLocations() {
+    const states = this.hass?.states || {};
+    return Object.values(states)
+      .filter((st) => st.entity_id.startsWith("geo_location."))
+      .map((st) => ({
+        id: st.entity_id,
+        name: st.attributes.friendly_name || st.entity_id,
+        lat: st.attributes.latitude,
+        lon: st.attributes.longitude,
+        source: st.attributes.source || "geo_location",
+        distance: st.state,
+        unit: st.attributes.unit_of_measurement || "km",
+      }))
+      .filter((marker) => marker.lat != null && marker.lon != null);
   }
 
   _onFiltersChanged(ev) {

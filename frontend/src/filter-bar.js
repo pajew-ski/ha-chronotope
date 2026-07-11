@@ -318,7 +318,23 @@ class ChronotopeFilterBar extends LitElement {
               .checked=${s.showZones}
               @change=${(ev) => this._patch({ showZones: ev.target.checked })}
             />
-            HA-Zonen anzeigen
+            HA-Zonen
+          </label>
+          <label class="row">
+            <input
+              type="checkbox"
+              .checked=${s.showPersons}
+              @change=${(ev) => this._patch({ showPersons: ev.target.checked })}
+            />
+            Personen
+          </label>
+          <label class="row">
+            <input
+              type="checkbox"
+              .checked=${s.showGeoFeeds}
+              @change=${(ev) => this._patch({ showGeoFeeds: ev.target.checked })}
+            />
+            Geo-Feeds
           </label>
         </div>
 

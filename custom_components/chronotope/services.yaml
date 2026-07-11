@@ -380,6 +380,39 @@ digest:
           filter:
             domain: calendar
 
+match_visits:
+  name: Besuche rückwirkend abgleichen
+  description: >-
+    Gleicht die aufgezeichnete Positionshistorie deiner Personen (Recorder)
+    mit vergangenen Events ab und füllt die Besuchshistorie rückwirkend.
+    Reicht nur so weit zurück, wie der Recorder Daten vorhält
+    (purge_keep_days, Standard 10 Tage).
+  fields:
+    days:
+      name: Zeitraum (Tage)
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 365
+          mode: box
+    radius_km:
+      name: Radius (km)
+      default: 0.5
+      selector:
+        number:
+          min: 0.05
+          max: 50
+          step: any
+          mode: box
+    person_entities:
+      name: Personen (leer = alle)
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: person
+
 purge:
   name: Alte Events aufräumen
   description: >-

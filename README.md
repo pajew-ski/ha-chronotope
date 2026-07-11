@@ -38,14 +38,21 @@ Benachrichtigungen und Kalender-Abos.
 - **Näheerkennung**: meldet per `chronotope_nearby`, wenn eine Person im
   Radius eines gerade laufenden Events ist (Optionen: an/aus, Radius) und
   führt daraus automatisch eine **Besuchshistorie** (Geo-Tagebuch).
+  `chronotope.match_visits` füllt sie rückwirkend aus der
+  Recorder-Positionshistorie (so weit die Retention reicht, Standard 10 Tage).
+- **geo_location-Anschluss**: Entities der HA-Geo-Feeds (Erdbeben, GDACS,
+  `geo_json_events`, …) erscheinen als Karten-Layer und werden optional
+  (Options-Flow) automatisch als Events übernommen — mit rollierendem Ende,
+  solange die Meldung aktiv ist.
 - **Digest**: „Diese Woche in deiner Nähe" als Text — optional direkt an
   einen notify-Dienst und mit Frei-/Belegt-Abgleich gegen deine Kalender.
 
 ### Panel (Karte)
 - Lit 3 + Leaflet + Marker-Clustering, alles vendored (kein CDN), Light/Dark
   entlang des HA-Themes, OSM-Tiles.
-- GeoJSON-Linien/-Flächen, HA-Zonen (inkl. Zuhause) als zuschaltbarer Layer
-  (Hinweis: HA-Areas/Bereiche haben keine Koordinaten — geo-fähig sind Zonen).
+- GeoJSON-Linien/-Flächen; zuschaltbare Layer für HA-Zonen (inkl. Zuhause),
+  Personen (live, mit Foto) und geo_location-Feeds (Hinweis: HA-Areas/
+  Bereiche haben keine Koordinaten — geo-fähig sind Zonen).
 - Filter-UI mit Profilen, Textsuche, Favoriten, Kategorie-Chips,
   Radius-Slider (Center per Kartenklick), Zeitfenster mit Tages-Slider,
   Wochentagen; Ergebnisliste distanzsortiert mit ★/Ausblenden/„besucht".

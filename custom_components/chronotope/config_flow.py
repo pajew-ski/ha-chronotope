@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 
 from .const import DOMAIN
+from .geoloc import OPTION_GEOLOC_INGEST
 from .nearby import DEFAULT_RADIUS_KM, OPTION_NEARBY_ENABLED, OPTION_NEARBY_RADIUS
 
 
@@ -55,6 +56,10 @@ class ChronotopeOptionsFlow(OptionsFlow):
                     OPTION_NEARBY_RADIUS,
                     default=options.get(OPTION_NEARBY_RADIUS, DEFAULT_RADIUS_KM),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.05, max=50)),
+                vol.Required(
+                    OPTION_GEOLOC_INGEST,
+                    default=options.get(OPTION_GEOLOC_INGEST, False),
+                ): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

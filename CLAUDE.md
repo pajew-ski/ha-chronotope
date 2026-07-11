@@ -96,6 +96,16 @@ Alle Teile unter `custom_components/chronotope/`:
      `chronotope_nearby` (Cooldown 2 h pro Person+Event, 50-m-Bewegungs-
      schwelle) und schreibt die Besuchshistorie. Optionen (Radius, an/aus)
      im Options-Flow, Entry lädt bei Änderung neu.
+   - `geoloc.py` — opt-in (Options-Flow): spiegelt `geo_location.*`-Entities
+     (Erdbeben-/GDACS-/GeoJSON-Feeds) als Events mit stabiler ID
+     `geoloc:<entity_id>`, Kategorie `geo:<source>` und rollierendem
+     Ende (+1 h je Feed-Refresh); verschwindet die Entity, wird das Event
+     geschlossen. `chronotope.purge` räumt sie später ab.
+   - `chronotope.match_visits` — rückwirkender Besuchsabgleich: liest die
+     Positionshistorie der Personen aus dem Recorder
+     (`history.get_significant_states`, lazy importiert) und matcht sie
+     gegen vergangene Event-Occurrences (Radius-Parameter). Reicht nur so
+     weit zurück wie die Recorder-Retention (`purge_keep_days`, Default 10).
 
 5. **Custom Panel** (`frontend/`-Quellcode → Bundle in
    `custom_components/chronotope/frontend/chronotope-panel.js`):
@@ -103,9 +113,10 @@ Alle Teile unter `custom_components/chronotope/`:
    CSS) via esbuild vendored, kein CDN. Leaflet-Karte mit OSM-Tiles
    (Darkmode: CSS-Invert-Filter), UI ausschließlich über HA-Theme-Variablen.
    Punkt-Events clustern; `geometry` (GeoJSON) rendert als `L.geoJSON`;
-   HA-Zonen (inkl. Zuhause) als zuschaltbarer Layer aus `hass.states`
-   (`zone.*` hat Lat/Lon/Radius — HA-Areas/Bereiche haben keine Koordinaten
-   und sind darum nicht darstellbar). Filter-UI: Profile (speichern/laden/
+   HA-Zonen (inkl. Zuhause), Personen (`person.*`, live mit Foto/Initial)
+   und Geo-Feeds (`geo_location.*`, Rauten-Marker mit Quelle/Distanz) als
+   zuschaltbare Layer aus `hass.states` — HA-Areas/Bereiche haben keine
+   Koordinaten und sind darum nicht darstellbar. Filter-UI: Profile (speichern/laden/
    löschen), Textsuche, nur-Favoriten, Kategorie-Chips, Radius-Slider mit
    Kartenklick-Center, Zeitfenster mit Tages-Slider (clientseitig),
    Wochentage ganztags/Uhrzeitbereich, Zonen-Toggle, ICS-Button
