@@ -32,6 +32,10 @@ _MAX_OCCURRENCES = 366
 _MAX_RETURNED_OCCURRENCES = 50
 _DEFAULT_RECURRENCE_HORIZON = timedelta(days=366)
 
+# Deduplication thresholds: same title plus "same time and place".
+_DEDUPE_MAX_START_DRIFT = timedelta(hours=12)
+_DEDUPE_MAX_DISTANCE_KM = 0.3
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY,
@@ -222,17 +226,43 @@ class EventStore:
 
     # ------------------------------------------------------------------ write
 
-    def save_event(self, data: dict[str, Any]) -> dict[str, Any]:
+    def save_event(
+        self, data: dict[str, Any], dedupe: bool = False
+    ) -> dict[str, Any]:
         """Insert or replace an event; returns the stored representation.
 
         Address/geo cache: an event carrying both address and coordinates
         teaches the places table; an event carrying only an address gets its
         coordinates filled in from the cache when the address is known.
+
+        With ``dedupe=True`` (used by scraper ingest) an incoming event
+        without a known id is matched against existing events (same title,
+        same time and place) and merged into the match instead of creating
+        a duplicate. The result carries ``deduped: True`` when that happened.
         """
         event = self._validate(data)
+        deduped = False
         columns = ", ".join(_COLUMNS)
         placeholders = ", ".join(f":{col}" for col in _COLUMNS)
         with self._lock, self._conn:
+            if dedupe:
+                known = self._conn.execute(
+                    "SELECT 1 FROM events WHERE id = ?", (event["id"],)
+                ).fetchone()
+                if known is None and (match := self._find_duplicate_locked(event)):
+                    merged = dict(match)
+                    for col in _COLUMNS:
+                        if col in ("id", "favorite", "hidden"):
+                            continue
+                        value = event[col]
+                        if value is not None and value != "":
+                            merged[col] = value
+                    merged["id"] = match["id"]
+                    # Preserve stored flags via the regular carry-over below.
+                    merged["favorite"] = None
+                    merged["hidden"] = None
+                    event = merged
+                    deduped = True
             if event["address"]:
                 if event["lat"] is None:
                     row = self._conn.execute(
@@ -259,9 +289,51 @@ class EventStore:
                     event["hidden"] = row["hidden"] if row else 0
             self._conn.execute(
                 f"INSERT OR REPLACE INTO events ({columns}) VALUES ({placeholders})",
-                event,
+                {col: event[col] for col in _COLUMNS},
             )
+        event = {col: event[col] for col in _COLUMNS}
+        if deduped:
+            event["deduped"] = True
         return event
+
+    def _find_duplicate_locked(self, event: dict[str, Any]) -> sqlite3.Row | None:
+        """Find an existing event that is 'the same' as the incoming one:
+        equal title (case-insensitive), equal recurrence, starts within
+        12 hours (non-recurring), and same place (address key, else within
+        300 m, else both without location)."""
+        rows = self._conn.execute(
+            "SELECT * FROM events WHERE title = ? COLLATE NOCASE",
+            (event["title"],),
+        ).fetchall()
+        start = _parse_aware(event["start_time"], "start_time")
+        for row in rows:
+            if row["id"] == event["id"]:
+                continue
+            if (row["recurrence"] or None) != (event["recurrence"] or None):
+                continue
+            if not event["recurrence"]:
+                row_start = _parse_aware(row["start_time"], "start_time")
+                if abs(row_start - start) > _DEDUPE_MAX_START_DRIFT:
+                    continue
+            if event["address"] and row["address"]:
+                if _address_key(event["address"]) != _address_key(row["address"]):
+                    continue
+            elif event["lat"] is not None and row["lat"] is not None:
+                distance = haversine_km(
+                    event["lat"], event["lon"], row["lat"], row["lon"]
+                )
+                if distance is None or distance > _DEDUPE_MAX_DISTANCE_KM:
+                    continue
+            elif (
+                event["lat"] is not None
+                or row["lat"] is not None
+                or event["address"]
+                or row["address"]
+            ):
+                # One side has location information the other lacks.
+                continue
+            return row
+        return None
 
     def set_event_flags(
         self,
@@ -414,8 +486,65 @@ class EventStore:
             profile["filters"] = {}
         return profile
 
+    def purge(
+        self, older_than_days: int, source_name: str | None = None
+    ) -> int:
+        """Delete events that ended more than N days ago.
+
+        Recurring events are deleted only when the rule is exhausted, i.e.
+        no occurrence ends after the cutoff (unbounded rules are kept).
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(older_than_days))
+        cutoff_iso = cutoff.isoformat()
+        sql = (
+            "SELECT id, start_time, end_time, recurrence FROM events"
+            " WHERE (recurrence IS NOT NULL OR end_time < ?)"
+        )
+        params: list[Any] = [cutoff_iso]
+        if source_name is not None:
+            sql += " AND source_name = ?"
+            params.append(source_name)
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+
+        to_delete: list[str] = []
+        for row in rows:
+            if not row["recurrence"]:
+                to_delete.append(row["id"])
+                continue
+            start = _parse_aware(row["start_time"], "start_time")
+            end = _parse_aware(row["end_time"], "end_time")
+            duration = max(end - start, timedelta(0))
+            try:
+                rule = rrulestr(row["recurrence"], dtstart=start)
+                upcoming = rule.after(cutoff - duration, inc=True)
+            except (ValueError, TypeError):
+                continue  # unparseable: keep, never silently delete
+            if upcoming is None:
+                to_delete.append(row["id"])
+
+        if to_delete:
+            marks = ", ".join("?" for _ in to_delete)
+            with self._lock, self._conn:
+                self._conn.execute(
+                    f"DELETE FROM events WHERE id IN ({marks})", to_delete
+                )
+        return len(to_delete)
+
+    def source_stats(self) -> list[dict[str, Any]]:
+        """Per-source health: event count, last scrape, freshest event end."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT COALESCE(source_name, '(ohne Quelle)') AS source,"
+                " COUNT(*) AS events, MAX(scraped_at) AS last_scraped,"
+                " MAX(end_time) AS latest_end"
+                " FROM events GROUP BY source ORDER BY events DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def stats(self) -> dict[str, Any]:
         """Aggregate statistics for sensors and the panel."""
+        sources = self.source_stats()
         with self._lock:
             total = self._conn.execute(
                 "SELECT COUNT(*) AS c FROM events"
@@ -438,6 +567,7 @@ class EventStore:
             "categories": categories,
             "places": places,
             "profiles": profiles,
+            "sources": sources,
         }
 
     def categories(self) -> list[str]:

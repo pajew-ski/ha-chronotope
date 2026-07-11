@@ -468,6 +468,135 @@ class StoreTestCase(unittest.TestCase):
         )
         self.assertEqual(flt2.window_start, "2027-01-01T00:00:00+00:00")
 
+    def test_dedupe_merges_same_event(self):
+        first = self.store.save_event(
+            make_event(title="Flohmarkt Boxi", source_name="quelle-a")
+        )
+        self.store.set_event_flags(first["id"], favorite=True)
+        # Second source: same title (different case), 2h later start, 100m away.
+        second = self.store.save_event(
+            make_event(
+                title="FLOHMARKT BOXI",
+                lat=BERLIN["lat"] + 0.0008,
+                lon=BERLIN["lon"],
+                start_time="2026-07-11T12:00:00+02:00",
+                end_time="2026-07-11T16:00:00+02:00",
+                source_name="quelle-b",
+                raw_description="Mehr Details",
+            ),
+            dedupe=True,
+        )
+        self.assertTrue(second.get("deduped"))
+        self.assertEqual(second["id"], first["id"])
+        stored = self.store.get_event(first["id"])
+        self.assertEqual(stored["source_name"], "quelle-b")
+        self.assertEqual(stored["raw_description"], "Mehr Details")
+        self.assertEqual(stored["favorite"], 1)
+        self.assertEqual(len(self.store.query_events(QueryFilter(include_hidden=True))), 1)
+
+    def test_dedupe_respects_distance_and_time(self):
+        self.store.save_event(make_event(title="Konzert"))
+        far = self.store.save_event(
+            make_event(title="Konzert", **MUNICH), dedupe=True
+        )
+        self.assertFalse(far.get("deduped"))
+        later = self.store.save_event(
+            make_event(
+                title="Konzert",
+                start_time="2026-07-13T10:00:00+02:00",
+                end_time="2026-07-13T14:00:00+02:00",
+            ),
+            dedupe=True,
+        )
+        self.assertFalse(later.get("deduped"))
+        self.assertEqual(len(self.store.query_events(QueryFilter())), 3)
+
+    def test_dedupe_by_address_key(self):
+        self.store.save_event(
+            make_event(title="Repair Café", lat=None, lon=None, address="Hauptstr. 5, Berlin")
+        )
+        dup = self.store.save_event(
+            make_event(
+                title="repair café",
+                lat=None,
+                lon=None,
+                address="hauptstr 5 berlin",
+            ),
+            dedupe=True,
+        )
+        self.assertTrue(dup.get("deduped"))
+
+    def test_purge_old_and_exhausted(self):
+        self.store.save_event(
+            make_event(
+                title="Alt",
+                start_time="2020-01-01T10:00:00+00:00",
+                end_time="2020-01-01T12:00:00+00:00",
+            )
+        )
+        self.store.save_event(
+            make_event(
+                title="AlteSerie",
+                start_time="2020-01-01T10:00:00+00:00",
+                end_time="2020-01-01T12:00:00+00:00",
+                recurrence="FREQ=WEEKLY;COUNT=3",
+            )
+        )
+        self.store.save_event(
+            make_event(
+                title="EwigeSerie",
+                start_time="2020-01-01T10:00:00+00:00",
+                end_time="2020-01-01T12:00:00+00:00",
+                recurrence="FREQ=WEEKLY",
+            )
+        )
+        self.store.save_event(make_event(title="Zukunft"))
+        deleted = self.store.purge(30)
+        self.assertEqual(deleted, 2)
+        remaining = {
+            e["title"]
+            for e in self.store.query_events(QueryFilter(include_hidden=True))
+        }
+        self.assertEqual(remaining, {"EwigeSerie", "Zukunft"})
+
+    def test_purge_by_source(self):
+        self.store.save_event(
+            make_event(
+                title="AltA",
+                source_name="a",
+                start_time="2020-01-01T10:00:00+00:00",
+                end_time="2020-01-01T12:00:00+00:00",
+            )
+        )
+        self.store.save_event(
+            make_event(
+                title="AltB",
+                source_name="b",
+                start_time="2020-01-01T10:00:00+00:00",
+                end_time="2020-01-01T12:00:00+00:00",
+            )
+        )
+        self.assertEqual(self.store.purge(30, source_name="a"), 1)
+        remaining = {e["title"] for e in self.store.query_events(QueryFilter())}
+        self.assertEqual(remaining, {"AltB"})
+
+    def test_stats_and_source_stats(self):
+        self.store.save_event(
+            make_event(source_name="quelle-a", scraped_at="2026-07-01T00:00:00+00:00")
+        )
+        self.store.save_event(make_event(title="Zwei", source_name="quelle-a"))
+        self.store.save_event(make_event(title="Drei"))
+        self.store.save_profile({"name": "P", "filters": {}})
+        stats = self.store.stats()
+        self.assertEqual(stats["total_events"], 3)
+        self.assertEqual(stats["profiles"], 1)
+        sources = {s["source"]: s for s in stats["sources"]}
+        self.assertEqual(sources["quelle-a"]["events"], 2)
+        self.assertEqual(
+            sources["quelle-a"]["last_scraped"], "2026-07-01T00:00:00+00:00"
+        )
+        self.assertIn("(ohne Quelle)", sources)
+
     def test_haversine_known_distance(self):
         # Berlin -> Munich is roughly 504 km.
         distance = haversine_km(

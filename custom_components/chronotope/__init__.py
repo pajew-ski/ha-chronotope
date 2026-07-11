@@ -29,7 +29,7 @@ from .const import (
     STORAGE_KEY,
     STORAGE_VERSION,
 )
-from .http import ChronotopeICSView
+from .http import ChronotopeICSView, ChronotopeIngestView
 from .store import EventStore
 
 DATA_STATIC_REGISTERED = "static_registered"
@@ -61,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data[DATA_WS_REGISTERED] = True
     if not domain_data.get(DATA_VIEW_REGISTERED):
         hass.http.register_view(ChronotopeICSView)
+        hass.http.register_view(ChronotopeIngestView)
         domain_data[DATA_VIEW_REGISTERED] = True
     if not domain_data.get(DATA_STATIC_REGISTERED):
         await hass.http.async_register_static_paths(

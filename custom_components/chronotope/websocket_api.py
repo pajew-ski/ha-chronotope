@@ -62,6 +62,7 @@ def _build_filter(hass: HomeAssistant, msg: dict[str, Any]) -> QueryFilter:
     {
         vol.Required("type"): "chronotope/events/save",
         vol.Required("event"): dict,
+        vol.Optional("dedupe"): bool,
     }
 )
 @websocket_api.async_response
@@ -80,11 +81,14 @@ async def ws_save_event(
         is not None
     )
     try:
-        event = await hass.async_add_executor_job(store.save_event, msg["event"])
+        event = await hass.async_add_executor_job(
+            lambda: store.save_event(msg["event"], dedupe=msg.get("dedupe", False))
+        )
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_event", str(err))
         return
-    notify_event_change(hass, "updated" if existed else "added", event)
+    action = "updated" if existed or event.get("deduped") else "added"
+    notify_event_change(hass, action, event)
     connection.send_result(msg["id"], {"event": event})
 
 

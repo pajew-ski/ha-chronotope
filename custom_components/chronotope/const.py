@@ -14,6 +14,7 @@ STORAGE_KEY = "chronotope"
 STORAGE_VERSION = 1
 
 ICS_VIEW_URL = "/api/chronotope/calendar.ics"
+INGEST_VIEW_URL = "/api/chronotope/events"
 
 CONFIDENCE_VALUES = ("verified", "scraped", "inferred")
 

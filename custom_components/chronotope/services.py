@@ -45,6 +45,7 @@ _EVENT_SCHEMA = vol.Schema(
         vol.Optional("schedule_text"): cv.string,
         vol.Optional("favorite"): cv.boolean,
         vol.Optional("hidden"): cv.boolean,
+        vol.Optional("dedupe"): cv.boolean,
     }
 )
 
@@ -106,17 +107,32 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def handle_add_event(call: ServiceCall) -> ServiceResponse:
         store = _get_store(hass)
         data = dict(call.data)
+        dedupe = data.pop("dedupe", False)
         existed = (
             "id" in data
             and await hass.async_add_executor_job(store.get_event, str(data["id"]))
             is not None
         )
         try:
-            event = await hass.async_add_executor_job(store.save_event, data)
+            event = await hass.async_add_executor_job(
+                lambda: store.save_event(data, dedupe=dedupe)
+            )
         except ValueError as err:
             raise ServiceValidationError(str(err)) from err
-        notify_event_change(hass, "updated" if existed else "added", event)
+        action = "updated" if existed or event.get("deduped") else "added"
+        notify_event_change(hass, action, event)
         return {"event": event}
+
+    async def handle_purge(call: ServiceCall) -> ServiceResponse:
+        store = _get_store(hass)
+        deleted = await hass.async_add_executor_job(
+            lambda: store.purge(
+                call.data["older_than_days"], call.data.get("source_name")
+            )
+        )
+        if deleted:
+            notify_event_change(hass, "deleted", None)
+        return {"deleted": deleted}
 
     async def handle_delete_event(call: ServiceCall) -> ServiceResponse:
         store = _get_store(hass)
@@ -170,4 +186,18 @@ def async_register_services(hass: HomeAssistant) -> None:
         handle_lookup_place,
         schema=vol.Schema({vol.Required("address"): cv.string}),
         supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "purge",
+        handle_purge,
+        schema=vol.Schema(
+            {
+                vol.Required("older_than_days"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0)
+                ),
+                vol.Optional("source_name"): cv.string,
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
     )
