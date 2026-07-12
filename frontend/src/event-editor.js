@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { t } from "./i18n.js";
+import { ICON_CLOSE } from "./icons.js";
 
 function isoToLocalInput(iso) {
   if (!iso) return "";
@@ -23,35 +24,101 @@ class ChronotopeEventEditor extends LitElement {
     event: { attribute: false },
     categories: { attribute: false },
     captureMode: { attribute: false },
+    narrow: { type: Boolean, reflect: true },
     _draft: { state: true },
     _error: { state: true },
   };
 
   static styles = css`
     :host {
-      display: block;
+      display: flex;
+      flex-direction: column;
       position: absolute;
       top: 0;
       right: 0;
       bottom: 0;
-      width: min(380px, 90vw);
+      width: min(400px, 92vw);
       background: var(--card-background-color, #fff);
       color: var(--primary-text-color, #212121);
       border-inline-start: 1px solid var(--divider-color, #e0e0e0);
       box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
-      overflow-y: auto;
       z-index: 1200;
       font-size: 14px;
+      transition: width 0.2s ease, max-height 0.2s ease;
+    }
+    /* While drawing on the map (desktop), free up map space. */
+    :host([capturing]:not([narrow])) {
+      width: 300px;
+    }
+    /* Phone: bottom sheet, map stays visible above. */
+    :host([narrow]) {
+      top: auto;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      max-height: 72%;
+      border-inline-start: none;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
+    }
+    /* Phone while drawing: shrink to a strip so the map is free. */
+    :host([narrow][capturing]) {
+      max-height: 42%;
+    }
+    .grip {
+      display: none;
+      width: 36px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--divider-color, #e0e0e0);
+      margin: 8px auto 0;
+      flex: 0 0 auto;
+    }
+    :host([narrow]) .grip {
+      display: block;
+    }
+    .head {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
+    }
+    .close {
+      border: none;
+      background: none;
+      cursor: pointer;
+      color: var(--secondary-text-color, #727272);
+      padding: 4px;
+      line-height: 1;
+    }
+    .close .icon {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
     }
     form {
+      flex: 1 1 auto;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 10px;
-      padding: 16px;
+      padding: 12px 16px 0;
+    }
+    .foot {
+      position: sticky;
+      bottom: 0;
+      background: var(--card-background-color, #fff);
+      border-top: 1px solid var(--divider-color, #e0e0e0);
+      padding: 12px 0 16px;
+      margin-top: 6px;
     }
     h2 {
       margin: 0;
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 500;
     }
     label {
@@ -119,6 +186,12 @@ class ChronotopeEventEditor extends LitElement {
     }
   `;
 
+  updated(changed) {
+    if (changed.has("captureMode")) {
+      this.toggleAttribute("capturing", Boolean(this.captureMode));
+    }
+  }
+
   willUpdate(changed) {
     if (changed.has("event")) {
       const ev = this.event || {};
@@ -161,8 +234,19 @@ class ChronotopeEventEditor extends LitElement {
   render() {
     const d = this._draft || {};
     return html`
-      <form @submit=${this._save}>
+      <div class="grip"></div>
+      <div class="head">
         <h2>${d.id ? t("editor.edit") : t("editor.new")}</h2>
+        <button
+          class="close"
+          type="button"
+          title=${t("editor.close")}
+          @click=${() => this.dispatchEvent(new CustomEvent("editor-cancel"))}
+        >
+          ${ICON_CLOSE}
+        </button>
+      </div>
+      <form @submit=${this._save}>
         ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
         <label>
           ${t("editor.title")}
@@ -291,7 +375,7 @@ class ChronotopeEventEditor extends LitElement {
           />
           ${t("editor.favorite")}
         </label>
-        <div class="buttons">
+        <div class="buttons foot">
           <button type="submit" class="primary">${t("editor.save")}</button>
           <button type="button" @click=${() => this.dispatchEvent(new CustomEvent("editor-cancel"))}>
             ${t("editor.cancel")}
@@ -300,10 +384,7 @@ class ChronotopeEventEditor extends LitElement {
             ? html`<button
                 type="button"
                 class="danger"
-                @click=${() =>
-                  this.dispatchEvent(
-                    new CustomEvent("editor-delete", { detail: { id: d.id } })
-                  )}
+                @click=${this._confirmDelete}
               >
                 ${t("editor.delete")}
               </button>`
@@ -311,6 +392,13 @@ class ChronotopeEventEditor extends LitElement {
         </div>
       </form>
     `;
+  }
+
+  _confirmDelete() {
+    if (!window.confirm(t("editor.delete.confirm"))) return;
+    this.dispatchEvent(
+      new CustomEvent("editor-delete", { detail: { id: this._draft.id } })
+    );
   }
 
   _set(field) {

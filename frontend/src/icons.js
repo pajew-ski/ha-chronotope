@@ -25,6 +25,18 @@ export const ICON_REPEAT = icon(
   "M17,17H7V14L3,18L7,22V19H19V13H17M7,7H17V10L21,6L17,2V5H5V11H7V7Z"
 );
 
+export const ICON_CHEVRON_DOWN = icon(
+  "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"
+);
+
+export const ICON_CHEVRON_UP = icon(
+  "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z"
+);
+
+export const ICON_CLOSE = icon(
+  "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"
+);
+
 /** Raw string for Leaflet divIcon (rendered outside Lit templates). */
 export const HOME_ICON_SVG =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z"/></svg>';

@@ -25,6 +25,7 @@ const DISPLAY_ONLY_KEYS = new Set([
   "showPersons",
   "showGeoFeeds",
   "dayFilter",
+  "filtersCollapsed",
 ]);
 // Filter/layer state persists per browser; bump the version when the
 // filter shape changes incompatibly.
@@ -48,6 +49,7 @@ function defaultFilters() {
     showPersons: true,
     showGeoFeeds: true,
     dayFilter: "",
+    filtersCollapsed: false,
   };
 }
 
@@ -151,12 +153,12 @@ class ChronotopePanel extends LitElement {
       flex-direction: column-reverse;
     }
     .content.narrow chronotope-event-list {
-      flex: 1 1 50%;
+      flex: 1 1 45%;
       border-inline-end: none;
       border-top: 1px solid var(--divider-color, #e0e0e0);
     }
     .content.narrow chronotope-map-view {
-      flex: 1 1 50%;
+      flex: 1 1 55%;
     }
   `;
 
@@ -187,6 +189,9 @@ class ChronotopePanel extends LitElement {
         ...defaultFilters(),
         ...(persisted?.filters || {}),
         center: persisted?.filters?.center || this._homeCenter(),
+        // First visit on a phone starts collapsed so the map is visible.
+        filtersCollapsed:
+          persisted?.filters?.filtersCollapsed ?? Boolean(this.narrow),
       };
       this._selectedProfileId = persisted?.selectedProfileId || "";
       this._loadCategories();
@@ -285,6 +290,9 @@ class ChronotopePanel extends LitElement {
         .profiles=${this._profiles}
         .selectedProfileId=${this._selectedProfileId}
         .stats=${this._stats}
+        .collapsed=${this._filters.filtersCollapsed}
+        .narrow=${Boolean(this.narrow)}
+        @toggle-collapsed=${this._onToggleFilters}
         @filters-changed=${this._onFiltersChanged}
         @ics-requested=${this._onIcsRequested}
         @profile-selected=${this._onProfileSelected}
@@ -322,6 +330,7 @@ class ChronotopePanel extends LitElement {
               .event=${this._editing}
               .categories=${this._categories}
               .captureMode=${this._capture?.mode || null}
+              .narrow=${Boolean(this.narrow)}
               @editor-save=${this._onEditorSave}
               @editor-delete=${this._onEditorDelete}
               @editor-cancel=${this._onEditorCancel}
@@ -396,6 +405,13 @@ class ChronotopePanel extends LitElement {
         unit: st.attributes.unit_of_measurement || "km",
       }))
       .filter((marker) => marker.lat != null && marker.lon != null);
+  }
+
+  _onToggleFilters() {
+    this._filters = {
+      ...this._filters,
+      filtersCollapsed: !this._filters.filtersCollapsed,
+    };
   }
 
   _onFiltersChanged(ev) {

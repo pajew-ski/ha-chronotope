@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { t } from "./i18n.js";
+import { ICON_CHEVRON_DOWN, ICON_CHEVRON_UP } from "./icons.js";
 
 /**
  * Filter controls. Receives the panel's filter state and the available
@@ -14,6 +15,8 @@ class ChronotopeFilterBar extends LitElement {
     profiles: { attribute: false },
     selectedProfileId: { attribute: false },
     stats: { attribute: false },
+    collapsed: { type: Boolean, reflect: true },
+    narrow: { type: Boolean, reflect: true },
     _profileName: { state: true },
   };
 
@@ -21,7 +24,23 @@ class ChronotopeFilterBar extends LitElement {
     super();
     this.profiles = [];
     this.selectedProfileId = "";
+    this.collapsed = false;
+    this.narrow = false;
     this._profileName = "";
+  }
+
+  /** Number of active filter kinds, shown in the collapsed summary. */
+  _activeFilterCount() {
+    const s = this.state || {};
+    let count = 0;
+    if (s.categories?.length) count += 1;
+    if (s.radiusEnabled) count += 1;
+    if (s.start || s.end) count += 1;
+    if (s.weekdays?.length) count += 1;
+    if (s.timeMode === "range" && (s.timeFrom || s.timeTo)) count += 1;
+    if (s.text) count += 1;
+    if (s.favoritesOnly) count += 1;
+    return count;
   }
 
   static styles = css`
@@ -29,14 +48,56 @@ class ChronotopeFilterBar extends LitElement {
       display: block;
       background: var(--card-background-color, #fff);
       border-bottom: 1px solid var(--divider-color, #e0e0e0);
-      padding: 8px 16px 12px;
       font-size: 14px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      color: var(--secondary-text-color, #727272);
+      padding: 8px 16px;
+    }
+    .toggle-row .icon {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+    .toggle-row .active-count {
+      color: var(--primary-color, #03a9f4);
+      font-weight: 500;
     }
     .groups {
       display: flex;
       flex-wrap: wrap;
       gap: 16px 24px;
       align-items: flex-start;
+      padding: 0 16px 12px;
+    }
+    :host([narrow]) .groups {
+      flex-direction: column;
+      gap: 14px;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    :host([narrow]) .group {
+      width: 100%;
+    }
+    :host([narrow]) input[type="datetime-local"] {
+      flex: 1;
+      min-width: 0;
+    }
+    :host([narrow]) input[type="text"] {
+      flex: 1;
+      min-width: 0;
+    }
+    :host([narrow]) input[type="range"] {
+      flex: 1;
     }
     .group {
       display: flex;
@@ -137,6 +198,26 @@ class ChronotopeFilterBar extends LitElement {
 
   render() {
     const s = this.state;
+    const active = this._activeFilterCount();
+    return html`
+      <button
+        class="toggle-row"
+        title=${this.collapsed ? t("filters.show") : t("filters.hide")}
+        @click=${() => this.dispatchEvent(new CustomEvent("toggle-collapsed"))}
+      >
+        <span>
+          ${t("filters.label")}
+          ${active
+            ? html` <span class="active-count">· ${t("filters.active", { n: active })}</span>`
+            : nothing}
+        </span>
+        ${this.collapsed ? ICON_CHEVRON_DOWN : ICON_CHEVRON_UP}
+      </button>
+      ${this.collapsed ? nothing : this._renderGroups(s)}
+    `;
+  }
+
+  _renderGroups(s) {
     return html`
       <div class="groups">
         <div class="group">

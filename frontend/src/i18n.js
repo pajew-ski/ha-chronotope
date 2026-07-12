@@ -59,6 +59,11 @@ const DICTIONARIES = {
     "view.reset": "Reset view",
     "view.reset.title": "Restore default filters and map layers",
 
+    "filters.label": "Filters",
+    "filters.active": "{n} active",
+    "filters.show": "Show filters",
+    "filters.hide": "Hide filters",
+
     "stats.summary": "Statistics ({n} events)",
     "stats.places": "Cached places",
     "stats.profiles": "Profiles",
@@ -105,6 +110,8 @@ const DICTIONARIES = {
     "editor.error.times": "Start and end are required.",
     "editor.error.geometry": "Geometry is not valid JSON.",
     "editor.error.coords": "Provide lat and lon together.",
+    "editor.close": "Close",
+    "editor.delete.confirm": "Delete this event?",
   },
   de: {
     "panel.newEvent": "+ Neues Event",
@@ -160,6 +167,11 @@ const DICTIONARIES = {
     "view.reset": "Ansicht zurücksetzen",
     "view.reset.title": "Filter und Karten-Layer auf Standard zurücksetzen",
 
+    "filters.label": "Filter",
+    "filters.active": "{n} aktiv",
+    "filters.show": "Filter anzeigen",
+    "filters.hide": "Filter ausblenden",
+
     "stats.summary": "Statistik ({n} Events)",
     "stats.places": "Orte im Cache",
     "stats.profiles": "Profile",
@@ -206,6 +218,8 @@ const DICTIONARIES = {
     "editor.error.times": "Beginn und Ende sind Pflichtfelder.",
     "editor.error.geometry": "Geometrie ist kein gültiges JSON.",
     "editor.error.coords": "Lat und Lon nur gemeinsam angeben.",
+    "editor.close": "Schließen",
+    "editor.delete.confirm": "Dieses Event löschen?",
   },
 };
 

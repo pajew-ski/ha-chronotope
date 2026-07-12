@@ -120,6 +120,18 @@ class ChronotopeEventList extends LitElement {
       fill: currentColor;
       vertical-align: -3px;
     }
+    @media (max-width: 870px) {
+      .item {
+        padding: 12px 16px;
+      }
+      .icon-btn {
+        padding: 6px;
+      }
+      .icon {
+        width: 20px;
+        height: 20px;
+      }
+    }
     .icon-btn.starred {
       color: var(--warning-color, #ff9800);
     }
