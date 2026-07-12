@@ -77,11 +77,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         domain_data[DATA_STATIC_REGISTERED] = True
 
+    # Cache buster: browsers cache ES modules aggressively, so the module
+    # URL carries the bundle's mtime — panel updates apply without a hard
+    # refresh.
+    bundle_path = Path(__file__).parent / "frontend" / "chronotope-panel.js"
+    bundle_version = int(
+        await hass.async_add_executor_job(lambda: bundle_path.stat().st_mtime)
+    )
     await panel_custom.async_register_panel(
         hass,
         webcomponent_name="chronotope-panel",
         frontend_url_path=PANEL_URL_PATH,
-        module_url=FRONTEND_SCRIPT_URL,
+        module_url=f"{FRONTEND_SCRIPT_URL}?v={bundle_version}",
         sidebar_title=PANEL_TITLE,
         sidebar_icon=PANEL_ICON,
         require_admin=False,
