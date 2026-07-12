@@ -123,7 +123,11 @@ Alle Teile unter `custom_components/chronotope/`:
    Wochentage ganztags/Uhrzeitbereich, Zonen-Toggle, ICS-Button
    (profilbasiert, wenn Profil gewählt), Statistik-Block. Ergebnisliste
    distanzsortiert mit Favoriten-Stern, Ausblenden, „besucht"-Badge,
-   Quelle und Edit-Button. Event-Editor als Overlay: alle Felder,
+   Quelle und Edit-Button. Der komplette Filter-/Layer-Zustand inkl.
+   gewähltem Profil wird pro Browser in `localStorage` persistiert
+   (`chronotope-panel-state-v1` — Version bei inkompatiblen Änderungen
+   am Filter-Shape hochzählen); „Ansicht zurücksetzen" stellt die
+   Defaults wieder her. Event-Editor als Overlay: alle Felder,
    Punkt per Kartenklick, Linien/Flächen per Klick-Aufzeichnung mit
    Vorschau, Routing-Link (OSM) im Popup. Unscharfe Events erscheinen
    gestrichelt und zeigen `schedule_text` statt konkreter Termine.

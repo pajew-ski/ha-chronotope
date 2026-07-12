@@ -26,6 +26,30 @@ const DISPLAY_ONLY_KEYS = new Set([
   "showGeoFeeds",
   "dayFilter",
 ]);
+// Filter/layer state persists per browser; bump the version when the
+// filter shape changes incompatibly.
+const STORAGE_KEY = "chronotope-panel-state-v1";
+
+function defaultFilters() {
+  return {
+    categories: [],
+    radiusEnabled: false,
+    radiusKm: 10,
+    center: null,
+    start: "",
+    end: "",
+    weekdays: [],
+    timeMode: "allday",
+    timeFrom: "",
+    timeTo: "",
+    text: "",
+    favoritesOnly: false,
+    showZones: true,
+    showPersons: true,
+    showGeoFeeds: true,
+    dayFilter: "",
+  };
+}
 
 function isoToLocalInput(iso) {
   if (!iso) return "";
@@ -148,24 +172,7 @@ class ChronotopePanel extends LitElement {
     this._editing = null;
     this._capture = null;
     this._stats = null;
-    this._filters = {
-      categories: [],
-      radiusEnabled: false,
-      radiusKm: 10,
-      center: null,
-      start: "",
-      end: "",
-      weekdays: [],
-      timeMode: "allday",
-      timeFrom: "",
-      timeTo: "",
-      text: "",
-      favoritesOnly: false,
-      showZones: true,
-      showPersons: true,
-      showGeoFeeds: true,
-      dayFilter: "",
-    };
+    this._filters = defaultFilters();
     this._initialized = false;
   }
 
@@ -175,18 +182,65 @@ class ChronotopePanel extends LitElement {
     }
     if (changed.has("hass") && this.hass && !this._initialized) {
       this._initialized = true;
+      const persisted = this._loadPersistedState();
       this._filters = {
-        ...this._filters,
-        center: {
-          lat: this.hass.config.latitude,
-          lon: this.hass.config.longitude,
-        },
+        ...defaultFilters(),
+        ...(persisted?.filters || {}),
+        center: persisted?.filters?.center || this._homeCenter(),
       };
+      this._selectedProfileId = persisted?.selectedProfileId || "";
       this._loadCategories();
       this._loadProfiles();
       this._loadStats();
       this._runQuery();
     }
+  }
+
+  updated(changed) {
+    if (!this._initialized) return;
+    if (changed.has("_filters") || changed.has("_selectedProfileId")) {
+      try {
+        window.localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            filters: this._filters,
+            selectedProfileId: this._selectedProfileId,
+          })
+        );
+      } catch (err) {
+        // Storage full or blocked: the panel still works, just non-sticky.
+      }
+    }
+  }
+
+  _homeCenter() {
+    return {
+      lat: this.hass.config.latitude,
+      lon: this.hass.config.longitude,
+    };
+  }
+
+  _loadPersistedState() {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      console.warn("chronotope: persisted panel state unreadable", err);
+      return null;
+    }
+  }
+
+  _onResetView() {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch (err) {
+      // ignore
+    }
+    this._filters = { ...defaultFilters(), center: this._homeCenter() };
+    this._selectedProfileId = "";
+    this._icsCopied = false;
+    this._error = null;
+    this._scheduleQuery();
   }
 
   async _loadStats() {
@@ -237,6 +291,7 @@ class ChronotopePanel extends LitElement {
         @profile-save=${this._onProfileSave}
         @profile-delete=${this._onProfileDelete}
         @stats-requested=${this._loadStats}
+        @reset-requested=${this._onResetView}
       ></chronotope-filter-bar>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       <div class="content ${this.narrow ? "narrow" : ""}">

@@ -347,6 +347,17 @@ class ChronotopeFilterBar extends LitElement {
           </button>
           ${this._renderStats()}
         </div>
+
+        <div class="group">
+          <span class="label">${t("view.label")}</span>
+          <button
+            class="ics-button"
+            title=${t("view.reset.title")}
+            @click=${() => this.dispatchEvent(new CustomEvent("reset-requested"))}
+          >
+            ${t("view.reset")}
+          </button>
+        </div>
       </div>
     `;
   }

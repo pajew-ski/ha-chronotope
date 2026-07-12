@@ -55,6 +55,10 @@ const DICTIONARIES = {
     "export.copy": "Copy ICS subscription URL",
     "export.copied": "URL copied",
 
+    "view.label": "View",
+    "view.reset": "Reset view",
+    "view.reset.title": "Restore default filters and map layers",
+
     "stats.summary": "Statistics ({n} events)",
     "stats.places": "Cached places",
     "stats.profiles": "Profiles",
@@ -151,6 +155,10 @@ const DICTIONARIES = {
     "export.label": "Export",
     "export.copy": "ICS-Abo-URL kopieren",
     "export.copied": "URL kopiert",
+
+    "view.label": "Ansicht",
+    "view.reset": "Ansicht zurücksetzen",
+    "view.reset.title": "Filter und Karten-Layer auf Standard zurücksetzen",
 
     "stats.summary": "Statistik ({n} Events)",
     "stats.places": "Orte im Cache",

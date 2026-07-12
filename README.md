@@ -126,6 +126,9 @@ After setup you will find:
 - **Editor**: create/edit/delete events, capture a point by clicking the
   map, or record lines/areas click by click with a live preview. Popups
   include an OSM directions link.
+- **Sticky state**: all filters, toggled layers and the selected profile
+  persist per browser (localStorage) across panel visits and reloads.
+  **Reset view** in the filter bar restores the defaults.
 
 ## Feeding events in
 
