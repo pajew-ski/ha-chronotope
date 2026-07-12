@@ -30,6 +30,7 @@ const DICTIONARIES = {
     "search.label": "Search",
     "search.placeholder": "Title, description, address…",
     "search.favorites": "Favorites only",
+    "search.showHidden": "Show hidden",
 
     "category.label": "Category",
     "category.none": "No categories yet",
@@ -77,6 +78,8 @@ const DICTIONARIES = {
     "list.favorite.remove": "Remove favorite",
     "list.edit": "Edit event",
     "list.hide": "Hide event",
+    "list.unhide": "Unhide event",
+    "list.hidden": "hidden",
     "list.fuzzy": "Imprecise schedule",
 
     "editor.new": "New event",
@@ -138,6 +141,7 @@ const DICTIONARIES = {
     "search.label": "Suche",
     "search.placeholder": "Titel, Beschreibung, Adresse…",
     "search.favorites": "nur Favoriten",
+    "search.showHidden": "Ausgeblendete anzeigen",
 
     "category.label": "Kategorie",
     "category.none": "Noch keine Kategorien",
@@ -185,6 +189,8 @@ const DICTIONARIES = {
     "list.favorite.remove": "Favorit entfernen",
     "list.edit": "Event bearbeiten",
     "list.hide": "Event ausblenden",
+    "list.unhide": "Event wieder einblenden",
+    "list.hidden": "ausgeblendet",
     "list.fuzzy": "Unpräzise Zeitangabe",
 
     "editor.new": "Neues Event",

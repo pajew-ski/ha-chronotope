@@ -286,6 +286,14 @@ class ChronotopeFilterBar extends LitElement {
               />
               ${t("search.favorites")}
             </label>
+            <label class="row" style="gap:4px">
+              <input
+                type="checkbox"
+                .checked=${s.showHidden}
+                @change=${(ev) => this._patch({ showHidden: ev.target.checked })}
+              />
+              ${t("search.showHidden")}
+            </label>
           </div>
         </div>
 

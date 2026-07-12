@@ -49,5 +49,6 @@ export function buildWsFilters(state) {
   }
   if (state.text) filters.text = state.text;
   if (state.favoritesOnly) filters.favorites_only = true;
+  if (state.showHidden) filters.include_hidden = true;
   return filters;
 }

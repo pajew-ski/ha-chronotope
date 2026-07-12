@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { t } from "./i18n.js";
 import {
+  ICON_EYE,
   ICON_EYE_OFF,
   ICON_PENCIL,
   ICON_REPEAT,
@@ -45,6 +46,9 @@ class ChronotopeEventList extends LitElement {
     .item[aria-current="true"] {
       border-inline-start: 3px solid var(--primary-color, #03a9f4);
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 8%, var(--card-background-color, #fff));
+    }
+    .item.is-hidden {
+      opacity: 0.55;
     }
     .title-row {
       display: flex;
@@ -153,7 +157,7 @@ class ChronotopeEventList extends LitElement {
     const end = event.occurrences?.[0]?.[1] ?? event.end_time;
     return html`
       <button
-        class="item"
+        class="item ${event.hidden ? "is-hidden" : ""}"
         aria-current=${event.id === this.selectedId ? "true" : "false"}
         @click=${() =>
           this.dispatchEvent(new CustomEvent("event-selected", { detail: { id: event.id } }))}
@@ -185,10 +189,10 @@ class ChronotopeEventList extends LitElement {
             </button>
             <button
               class="icon-btn"
-              title=${t("list.hide")}
-              @click=${(ev) => this._flag(ev, event, { hidden: true })}
+              title=${event.hidden ? t("list.unhide") : t("list.hide")}
+              @click=${(ev) => this._flag(ev, event, { hidden: !event.hidden })}
             >
-              ${ICON_EYE_OFF}
+              ${event.hidden ? ICON_EYE : ICON_EYE_OFF}
             </button>
           </span>
         </div>
@@ -197,6 +201,7 @@ class ChronotopeEventList extends LitElement {
           ${event.recurrence
             ? html`<span title=${event.recurrence}>${ICON_REPEAT}</span>`
             : nothing}
+          ${event.hidden ? html`<span class="badge">${t("list.hidden")}</span>` : nothing}
           ${event.category ? html`<span class="badge">${event.category}</span>` : nothing}
           ${event.confidence
             ? html`<span class="badge confidence-${event.confidence}">${event.confidence}</span>`

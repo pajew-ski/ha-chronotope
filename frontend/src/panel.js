@@ -45,6 +45,7 @@ function defaultFilters() {
     timeTo: "",
     text: "",
     favoritesOnly: false,
+    showHidden: false,
     showZones: true,
     showPersons: true,
     showGeoFeeds: true,
