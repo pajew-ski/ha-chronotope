@@ -2,7 +2,7 @@
 
 HA's geo_location platform family (earthquake feeds, GDACS, geo_json_events,
 fire feeds, ...) exposes entities with lat/lon that appear while an external
-geo event is active and vanish when it ends — a natural Chronotope source.
+geo event is active and vanish when it ends - a natural Chronotope source.
 
 While an entity exists its mirrored event keeps a rolling end time (extended
 on every feed refresh); when the entity disappears the event is closed at

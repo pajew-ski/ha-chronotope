@@ -1,4 +1,4 @@
-/** Inline SVG icons (Material Design Icons paths) — no emojis, no fetches. */
+/** Inline SVG icons (Material Design Icons paths) - no emojis, no fetches. */
 
 import { svg } from "lit";
 

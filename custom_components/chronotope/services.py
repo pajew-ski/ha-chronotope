@@ -460,7 +460,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         """Retroactively fill the visit history from recorder data.
 
         Only reaches as far back as the recorder retention (purge_keep_days,
-        default 10) — older positions simply no longer exist.
+        default 10) - older positions simply no longer exist.
         """
         store = _get_store(hass)
         if "recorder" not in hass.config.components:

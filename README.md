@@ -3,7 +3,7 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**A domain-open geo-time event engine for Home Assistant** — grown into a
+**A domain-open geo-time event engine for Home Assistant** - grown into a
 personal intelligence application. Chronotope collects *events* (anything
 with a place, a time span and a category: flea markets, road closures,
 meteor showers, concerts, garbage pickups …) from any source, filters them
@@ -12,8 +12,8 @@ interactive map panel, native calendars, sensors, notifications and
 calendar subscriptions.
 
 The core is deliberately domain-neutral: the engine does not know or care
-*what* an event is. Everything personal — profiles, calendars, digests,
-proximity alerts, your visit history — lives on top.
+*what* an event is. Everything personal - profiles, calendars, digests,
+proximity alerts, your visit history - lives on top.
 
 ---
 
@@ -49,7 +49,7 @@ proximity alerts, your visit history — lives on top.
 - **Address geo cache**: once any event taught the engine the coordinates
   of an address, later events at the same address get them for free.
 - **Deduplication**: the same event arriving from multiple sources is
-  merged instead of duplicated — your favorites survive.
+  merged instead of duplicated - your favorites survive.
 - **Map panel**: Leaflet + OpenStreetMap, marker clustering, GeoJSON lines
   and shapes, HA zones / people / geo_location feeds as toggleable layers,
   full event editor with draw-on-map geometry capture. Light/dark theme
@@ -58,7 +58,7 @@ proximity alerts, your visit history — lives on top.
 - **Native HA integration**: calendar entities and sensors per profile,
   services with response data, bus events for automations.
 - **Proximity detection**: fires `chronotope_nearby` when a person is at a
-  running event — and builds a visit history (geo diary) from it,
+  running event - and builds a visit history (geo diary) from it,
   retroactively fillable from recorder data.
 - **geo_location bridge**: earthquake/disaster/GeoJSON feed entities appear
   on the map and can optionally be mirrored as events.
@@ -97,16 +97,16 @@ After setup you will find:
 1. **Open the panel** from the sidebar. The map centers on your home
    coordinates; your HA zones and people are already visible as layers.
 2. **Create your first event**: click **+ New event**, give it a title,
-   category (free text — categories emerge from usage), start/end. Type an
+   category (free text - categories emerge from usage), start/end. Type an
    address, or click **Pick point on map** and click the map. Save.
-3. **Filter**: use the filter bar — category chips, a radius slider
+3. **Filter**: use the filter bar - category chips, a radius slider
    (click the map to move the center), a time window with a day-by-day
    slider, weekday chips (all-day or by time of day), text search.
 4. **Save a profile**: with filters active, type a name (e.g.
    "Weekend with kids") and press **Save**. A calendar entity and two
    sensors for this profile appear automatically.
 5. **Subscribe from a calendar app**: press **Copy ICS subscription URL**
-   — with a profile selected the URL references the profile, so the
+   - with a profile selected the URL references the profile, so the
    subscription follows later edits to the profile.
 
 ## The map panel
@@ -118,7 +118,7 @@ After setup you will find:
   people (live positions with their profile picture), and
   `geo_location.*` feed entities (diamond markers with source and
   distance). Note: HA *areas* have no coordinates in Home Assistant, so
-  they cannot be drawn — zones are the geo-capable concept.
+  they cannot be drawn - zones are the geo-capable concept.
 - **Result list**: sorted by distance when a radius center is set,
   otherwise by start time. Each entry offers favorite, edit and hide
   buttons, the source link, a "visited" badge fed by the visit
@@ -151,16 +151,16 @@ curl -X POST "http://homeassistant.local:8123/api/chronotope/events" \
 
 Accepts a single object, a bare list, or `{"events": [...]}`.
 Deduplication is on by default (`?dedupe=0` to disable). The token is the
-same secret used by the ICS feed — grab a URL containing it via the ICS
+same secret used by the ICS feed - grab a URL containing it via the ICS
 button in the panel. Geocoding stays the source's job, but thanks to the
 address cache each address only ever needs to be resolved once.
 
 **Other ways in:**
 
 - `chronotope.add_event` service (automations, scripts, Node-RED)
-- `chronotope.import_ics` / `import_geojson` / `import_gpx` — from a URL,
+- `chronotope.import_ics` / `import_geojson` / `import_gpx` - from a URL,
   a file relative to the config directory, or inline data
-- `chronotope.extract_event` (experimental) — hand free text like
+- `chronotope.extract_event` (experimental) - hand free text like
   *"flea market at Boxhagener Platz, every Sunday 10-16h"* to a
   conversation agent and get a structured event back
 - the panel's event editor
@@ -184,13 +184,13 @@ Create/update/delete profiles in the panel or via the WebSocket API.
 ## Calendars, sensors and ICS subscriptions
 
 - **Calendars**: every profile (plus "Alle Events" for everything) is a
-  real HA calendar entity — usable in the calendar dashboard, calendar
+  real HA calendar entity - usable in the calendar dashboard, calendar
   triggers and the companion app. Occurrences of recurring events appear
   as concrete entries; fuzzy events are prefixed with `~`.
 - **Sensors**: per profile a `next event` timestamp sensor (with title,
   category, address, coordinates as attributes) and an `events today`
   count; plus one global statistics sensor whose attributes include
-  per-source health (event count, last scrape) — ideal for alerting when
+  per-source health (event count, last scrape) - ideal for alerting when
   a scraper goes quiet.
 - **ICS feed**: `GET /api/chronotope/calendar.ics?token=<secret>` serves
   RFC 5545 iCalendar for any calendar client (Thunderbird, CalDAV apps,
@@ -198,7 +198,7 @@ Create/update/delete profiles in the panel or via the WebSocket API.
   events use `DTSTART;TZID=<your-tz>` plus a generated `VTIMEZONE`, so
   weekly 18:00 stays 18:00 across DST changes. All query filters work as
   URL parameters (`category`, `lat/lon/radius`, `start/end`, `weekday`,
-  `time_from/time_to`, `text`, `favorites`) — or just `profile=`.
+  `time_from/time_to`, `text`, `favorites`) - or just `profile=`.
 
 ## Automations
 
@@ -239,7 +239,7 @@ automation:
             {{ trigger.event.data.events[0].address or "see map" }}
 ```
 
-**One-shot after installation — fill the visit history retroactively**
+**One-shot after installation - fill the visit history retroactively**
 (Developer tools → Actions; reaches back as far as your recorder
 retention, default 10 days):
 
@@ -292,7 +292,7 @@ Real-world sources say things like *"Wednesdays at 6 pm, roughly twice a
 month"* or *"every Tue and Thu at 6 or 8 pm"*. Chronotope handles these
 with the machinery it already has:
 
-1. Store a **best-effort RRULE** — `FREQ=WEEKLY;BYDAY=WE` for the first,
+1. Store a **best-effort RRULE** - `FREQ=WEEKLY;BYDAY=WE` for the first,
    `FREQ=WEEKLY;BYDAY=TU,TH;BYHOUR=18,20` for the second (yes, alternative
    times fit in one rule). Recall beats precision: better to show a
    possible event than to miss it.
@@ -372,12 +372,12 @@ Responses include `distance_km` (when a center is set), `occurrences`
 
 ## Notes & limitations
 
-- **HA areas** have no coordinates — zones, people and geo_location
+- **HA areas** have no coordinates - zones, people and geo_location
   entities are what can be drawn on a map.
 - **`match_visits`** only reaches as far back as your recorder retention
   (`purge_keep_days`, default 10 days). Live tracking covers everything
   from installation onward.
-- **VTIMEZONE** transitions are computed with hour precision — exact for
+- **VTIMEZONE** transitions are computed with hour precision - exact for
   European/US zones; half-hour DST zones (e.g. Lord Howe) may be off by
   up to an hour at the transition moment.
 - **Dedupe rule**: same title (case-insensitive) + same recurrence +
@@ -398,9 +398,9 @@ cd frontend && npm ci && npm run build   # panel bundle (vendored/committed)
 python3 -m unittest discover -s tests    # HA-free tests (store, ICS, importers)
 ```
 
-Architecture details live in [CLAUDE.md](CLAUDE.md) (German — it is the
+Architecture details live in [CLAUDE.md](CLAUDE.md) (German - it is the
 internal engineering doc of this repository).
 
 ## License
 
-[MIT](LICENSE) — use it, fork it, build on it.
+[MIT](LICENSE) - use it, fork it, build on it.

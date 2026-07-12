@@ -77,7 +77,7 @@ def _vtimezone(tz_name: str, start_year: int, end_year: int) -> list[str]:
     """Generate a VTIMEZONE with explicit observances (hour precision).
 
     Transitions are found by scanning UTC offsets day by day and bisecting
-    to the hour — no RRULE reconstruction, just the observance list, which
+    to the hour - no RRULE reconstruction, just the observance list, which
     every mainstream client accepts.
     """
     tz = ZoneInfo(tz_name)

@@ -408,7 +408,7 @@ class ChronotopeMapView extends LitElement {
         keyboard: false,
       })
         .bindTooltip(
-          `${marker.name} — ${marker.source}` +
+          `${marker.name} - ${marker.source}` +
             (marker.distance && marker.distance !== "unknown"
               ? ` (${marker.distance} ${marker.unit})`
               : "")

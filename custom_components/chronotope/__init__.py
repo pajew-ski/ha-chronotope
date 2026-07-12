@@ -78,7 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data[DATA_STATIC_REGISTERED] = True
 
     # Cache buster: browsers cache ES modules aggressively, so the module
-    # URL carries the bundle's mtime — panel updates apply without a hard
+    # URL carries the bundle's mtime - panel updates apply without a hard
     # refresh.
     bundle_path = Path(__file__).parent / "frontend" / "chronotope-panel.js"
     bundle_version = int(

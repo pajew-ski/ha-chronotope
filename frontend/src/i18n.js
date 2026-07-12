@@ -20,7 +20,7 @@ const DICTIONARIES = {
     "error.capture": "Too few points for the drawing.",
 
     "profile.label": "Profile",
-    "profile.none": "— no profile —",
+    "profile.none": "(no profile)",
     "profile.placeholder": "Profile name",
     "profile.save": "Save",
     "profile.save.title": "Save current filters under this name",
@@ -128,7 +128,7 @@ const DICTIONARIES = {
     "error.capture": "Zu wenige Punkte für die Zeichnung.",
 
     "profile.label": "Profil",
-    "profile.none": "— kein Profil —",
+    "profile.none": "(kein Profil)",
     "profile.placeholder": "Profilname",
     "profile.save": "Speichern",
     "profile.save.title": "Aktuelle Filter unter diesem Namen speichern",

@@ -410,7 +410,7 @@ extract_event:
   name: Extract event from text (experimental)
   description: >-
     Lets a conversation agent (LLM) extract a structured event from free
-    text — including a best-effort RRULE and fuzzy-time marking. Optionally
+    text - including a best-effort RRULE and fuzzy-time marking. Optionally
     saves it directly (confidence: inferred).
   fields:
     text:

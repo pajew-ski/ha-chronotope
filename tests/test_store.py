@@ -329,7 +329,7 @@ class StoreTestCase(unittest.TestCase):
     def test_recurrence_expands_in_local_wall_clock_across_dst(self):
         # Weekly Tuesday 18:00 Berlin time, anchored in July (CEST, UTC+2).
         # In November (CET, UTC+1) the occurrence must still be 18:00 local,
-        # i.e. 17:00 UTC — not a fixed 16:00 UTC.
+        # i.e. 17:00 UTC - not a fixed 16:00 UTC.
         self.store.save_event(
             make_event(
                 title="Weekly local",

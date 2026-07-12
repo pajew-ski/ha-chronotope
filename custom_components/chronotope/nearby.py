@@ -3,7 +3,7 @@
 Listens to person.* state changes; whenever a person's position is inside
 the configured radius of a currently running event (occurrence), a
 ``chronotope_nearby`` bus event fires (per person+event with a cooldown)
-and a visit is recorded — that visit history is the geo diary.
+and a visit is recorded - that visit history is the geo diary.
 """
 
 from __future__ import annotations
