@@ -3,6 +3,7 @@
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from helpers import load_module
@@ -15,6 +16,11 @@ haversine_km = _store.haversine_km
 BERLIN = {"lat": 52.5200, "lon": 13.4050}
 POTSDAM = {"lat": 52.3906, "lon": 13.0645}
 MUNICH = {"lat": 48.1351, "lon": 11.5820}
+
+
+def iso_from_now(**delta):
+    """Timestamp relative to now, for tests that exercise now-dependent code."""
+    return (datetime.now(timezone.utc) + timedelta(**delta)).isoformat()
 
 
 def make_event(**overrides):
@@ -550,7 +556,13 @@ class StoreTestCase(unittest.TestCase):
                 recurrence="FREQ=WEEKLY",
             )
         )
-        self.store.save_event(make_event(title="Zukunft"))
+        self.store.save_event(
+            make_event(
+                title="Zukunft",
+                start_time=iso_from_now(days=1),
+                end_time=iso_from_now(days=1, hours=4),
+            )
+        )
         deleted = self.store.purge(30)
         self.assertEqual(deleted, 2)
         remaining = {
