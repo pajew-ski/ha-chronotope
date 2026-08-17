@@ -7,19 +7,31 @@ on:
     - cron: "0 4 * * 1"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   hassfest:
     name: Hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
     name: HACS validation
     runs-on: ubuntu-latest
+    # hacs/action does not read the checkout, it asks the GitHub API for
+    # GITHUB_HEAD_REF. On a pull_request event that ref is the source branch,
+    # which no longer exists once the PR is merged (or the branch is deleted)
+    # while the run is still queued, so the API answers "Not Found" and the
+    # action reports "not loaded properly in HACS". The push event for the very
+    # same commit validates the branch ref that really exists, so PRs lose no
+    # coverage here.
+    if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: hacs/action@main
         with:
           category: integration
@@ -30,8 +42,8 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install python-dateutil
@@ -41,8 +53,8 @@ jobs:
     name: Frontend bundle
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm ci
