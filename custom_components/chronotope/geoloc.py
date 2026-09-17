@@ -19,13 +19,17 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, State, callback
 
-from .const import DATA_STORE, DOMAIN
+from .const import DATA_STORE, DOMAIN, OPTION_GEOLOC_SOURCES
 from .signals import notify_event_change
 from .store import EventStore
 
 _LOGGER = logging.getLogger(__name__)
 
 OPTION_GEOLOC_INGEST = "geoloc_ingest_enabled"
+# Allow-list of geo_location sources (the entity's ``source`` attribute).
+# Empty means "all except lightning strikes": blitzortung floods the store
+# and is rendered live by the panel's geo-feed layer instead (spec 7.10).
+DEFAULT_BLOCKED_SOURCES = ("blitzortung",)
 
 # Grace window: how long a mirrored event stays "running" past the last
 # feed refresh before its rolling end time expires on its own.
@@ -34,6 +38,14 @@ _ROLLING_END = timedelta(hours=1)
 
 def _event_id(entity_id: str) -> str:
     return f"geoloc:{entity_id}"
+
+
+def source_allowed(source: str | None, allow_list: list[str] | None) -> bool:
+    """Apply the allow-list; without one, block only the default sources."""
+    name = str(source or "geo_location").strip().lower()
+    if allow_list:
+        return name in {str(item).strip().lower() for item in allow_list}
+    return not any(name.startswith(blocked) for blocked in DEFAULT_BLOCKED_SOURCES)
 
 
 def _event_from_state(
@@ -70,6 +82,7 @@ def async_setup_geoloc_ingest(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Start mirroring geo_location entities; stops on entry unload."""
     if not entry.options.get(OPTION_GEOLOC_INGEST, False):
         return
+    allow_list = list(entry.options.get(OPTION_GEOLOC_SOURCES) or [])
 
     def _store() -> EventStore | None:
         return hass.data.get(DOMAIN, {}).get(DATA_STORE)
@@ -77,6 +90,8 @@ def async_setup_geoloc_ingest(hass: HomeAssistant, entry: ConfigEntry) -> None:
     async def _upsert(state: State) -> None:
         store = _store()
         if store is None:
+            return
+        if not source_allowed(state.attributes.get("source"), allow_list):
             return
         now = datetime.now(timezone.utc)
         existing = await hass.async_add_executor_job(

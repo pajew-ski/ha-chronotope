@@ -82,7 +82,20 @@ CREATE TABLE IF NOT EXISTS visits (
     last_seen TEXT NOT NULL,
     PRIMARY KEY (event_id, person_id)
 );
+CREATE TABLE IF NOT EXISTS layers (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
+
+# Generic (user-configured) layer providers. Built-in layers reference a
+# catalog entry by ``layer_id`` instead; the store validates shape only and
+# leaves catalog knowledge to the feed layer (domain neutrality).
+GENERIC_LAYER_PROVIDERS = ("xyz", "wmts", "wms", "geojson_url")
+_LAYER_ID_RE = re.compile(r"^[a-z0-9_]+$")
+_TILE_PLACEHOLDERS = ("{z}", "{x}", "{y}")
+_WMTS_PLACEHOLDERS = ("{TileMatrix}", "{TileRow}", "{TileCol}")
 
 # Columns added after the initial release; existing databases are upgraded
 # in-place via ALTER TABLE.
@@ -494,6 +507,75 @@ class EventStore:
             profile["filters"] = {}
         return profile
 
+    # ----------------------------------------------------------------- layers
+
+    def save_layer(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a layer configuration (built-in or generic)."""
+        payload = validate_layer_config(data)
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO layers (id, payload, updated_at) VALUES (?, ?, ?)",
+                (payload["id"], json.dumps(payload), now),
+            )
+        return {**payload, "updated_at": now}
+
+    def delete_layer(self, layer_id: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute("DELETE FROM layers WHERE id = ?", (layer_id,))
+        return cursor.rowcount > 0
+
+    def get_layer(self, layer_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM layers WHERE id = ?", (layer_id,)
+            ).fetchone()
+        return self._layer_row(row) if row else None
+
+    def list_layers(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM layers ORDER BY id").fetchall()
+        return [self._layer_row(row) for row in rows]
+
+    @staticmethod
+    def _layer_row(row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            payload = json.loads(row["payload"])
+        except (ValueError, TypeError):
+            payload = {"id": row["id"]}
+        payload["id"] = row["id"]
+        payload["updated_at"] = row["updated_at"]
+        return payload
+
+    def delete_events_by_prefix(
+        self, prefix: str, older_than: str | None = None, keep_favorites: bool = True
+    ) -> int:
+        """Retention for feed providers: delete events whose id starts with
+        ``prefix`` and (optionally) ended before ``older_than``. Favorites are
+        never deleted unless explicitly requested."""
+        if not prefix:
+            raise ValueError("prefix is required")
+        sql = "DELETE FROM events WHERE substr(id, 1, ?) = ?"
+        params: list[Any] = [len(prefix), prefix]
+        if older_than is not None:
+            sql += " AND end_time < ?"
+            params.append(_to_utc_iso(older_than, "older_than"))
+        if keep_favorites:
+            sql += " AND favorite = 0"
+        with self._lock, self._conn:
+            cursor = self._conn.execute(sql, params)
+            self._conn.execute(
+                "DELETE FROM visits WHERE event_id NOT IN (SELECT id FROM events)"
+            )
+        return cursor.rowcount
+
+    def event_ids_by_prefix(self, prefix: str) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id FROM events WHERE substr(id, 1, ?) = ?", (len(prefix), prefix)
+            ).fetchall()
+        return [row["id"] for row in rows]
+
     # ---------------------------------------------------------------- visits
 
     def record_visit(
@@ -639,11 +721,15 @@ class EventStore:
             profiles = self._conn.execute(
                 "SELECT COUNT(*) AS c FROM profiles"
             ).fetchone()["c"]
+            layers = self._conn.execute(
+                "SELECT COUNT(*) AS c FROM layers"
+            ).fetchone()["c"]
         return {
             "total_events": total,
             "categories": categories,
             "places": places,
             "profiles": profiles,
+            "layers": layers,
             "sources": sources,
         }
 
@@ -905,6 +991,120 @@ class EventStore:
                 event[field] = str(event[field])
 
         return event
+
+
+def validate_layer_config(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate a layer configuration payload (section 5.2 of the spec).
+
+    Built-in layers carry ``layer_id`` (the catalog id) plus enabled,
+    interval and params; generic layers carry a ``provider`` from
+    ``GENERIC_LAYER_PROVIDERS``, an https URL and mandatory attribution.
+    Returns the normalized payload with ``id`` set.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("layer must be an object")
+    payload: dict[str, Any] = {}
+
+    def _opacity(value: Any) -> float:
+        try:
+            opacity = float(value)
+        except (TypeError, ValueError) as err:
+            raise ValueError("opacity must be a number") from err
+        if not 0 <= opacity <= 1:
+            raise ValueError("opacity must be between 0 and 1")
+        return opacity
+
+    layer_id = data.get("layer_id")
+    if layer_id:
+        layer_id = str(layer_id)
+        if not _LAYER_ID_RE.match(layer_id):
+            raise ValueError(f"invalid layer_id: {layer_id!r}")
+        payload["id"] = layer_id
+        payload["layer_id"] = layer_id
+        payload["enabled"] = bool(data.get("enabled", False))
+        if data.get("interval_s") is not None:
+            try:
+                interval = int(data["interval_s"])
+            except (TypeError, ValueError) as err:
+                raise ValueError("interval_s must be an integer") from err
+            if interval < 1:
+                raise ValueError("interval_s must be positive")
+            payload["interval_s"] = interval
+        params = data.get("params") or {}
+        if not isinstance(params, dict):
+            raise ValueError("params must be an object")
+        payload["params"] = params
+        payload["opacity"] = _opacity(data.get("opacity", 1.0))
+        return payload
+
+    provider = data.get("provider")
+    if provider not in GENERIC_LAYER_PROVIDERS:
+        raise ValueError(
+            f"provider must be one of {GENERIC_LAYER_PROVIDERS} for generic layers"
+        )
+    ident = str(data.get("id") or f"custom_{uuid.uuid4().hex[:12]}")
+    if not ident.startswith("custom_") or not _LAYER_ID_RE.match(ident):
+        raise ValueError("generic layer ids must look like custom_<hex>")
+    title = str(data.get("title") or "").strip()
+    if not title:
+        raise ValueError("title is required")
+    url = str(data.get("url") or "").strip()
+    if not url.lower().startswith("https://"):
+        raise ValueError("url must use https")
+    if provider == "xyz" and not all(ph in url for ph in _TILE_PLACEHOLDERS):
+        raise ValueError("xyz url must contain {z}, {x} and {y}")
+    if provider == "wmts" and not (
+        all(ph in url for ph in _TILE_PLACEHOLDERS)
+        or all(ph in url for ph in _WMTS_PLACEHOLDERS)
+    ):
+        raise ValueError(
+            "wmts url must contain {z}/{x}/{y} or {TileMatrix}/{TileRow}/{TileCol}"
+        )
+    attribution = data.get("attribution") or {}
+    if isinstance(attribution, str):
+        attribution = {"text": attribution}
+    if not isinstance(attribution, dict) or not str(attribution.get("text") or "").strip():
+        raise ValueError("attribution.text is required")
+    attribution = {
+        "text": str(attribution["text"]).strip(),
+        "url": str(attribution.get("url") or "").strip() or None,
+    }
+    if attribution["url"] and not attribution["url"].lower().startswith(
+        ("https://", "http://")
+    ):
+        raise ValueError("attribution.url must be a web link")
+    params = data.get("params") or {}
+    if not isinstance(params, dict):
+        raise ValueError("params must be an object")
+    if provider == "wms" and not str(params.get("layers") or "").strip():
+        raise ValueError("wms layers parameter is required")
+    interval = data.get("interval_s")
+    if provider == "geojson_url":
+        interval = int(interval) if interval is not None else 3600
+        if interval < 900:
+            raise ValueError("geojson_url interval_s must be at least 900 seconds")
+    payload.update(
+        {
+            "id": ident,
+            "provider": provider,
+            "title": title,
+            "enabled": bool(data.get("enabled", False)),
+            "url": url,
+            "params": params,
+            "attribution": attribution,
+            "license_note": (str(data.get("license_note")).strip() or None)
+            if data.get("license_note")
+            else None,
+            "opacity": _opacity(data.get("opacity", 1.0)),
+            "min_zoom": int(data.get("min_zoom", 0)),
+            "max_zoom": int(data.get("max_zoom", 18)),
+        }
+    )
+    if interval is not None:
+        payload["interval_s"] = int(interval)
+    if payload["min_zoom"] < 0 or payload["max_zoom"] > 22 or payload["min_zoom"] > payload["max_zoom"]:
+        raise ValueError("zoom range must be within 0..22 and ordered")
+    return payload
 
 
 def _parse_hhmm(value: str | None, field: str) -> time | None:

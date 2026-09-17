@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { t } from "./i18n.js";
+import { define } from "./define.js";
 import { ICON_CLOSE } from "./icons.js";
 
 function isoToLocalInput(iso) {
@@ -460,4 +461,4 @@ class ChronotopeEventEditor extends LitElement {
   }
 }
 
-customElements.define("chronotope-event-editor", ChronotopeEventEditor);
+define("chronotope-event-editor", ChronotopeEventEditor);

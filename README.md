@@ -27,6 +27,7 @@ proximity alerts, your visit history - lives on top.
 - [Filter profiles](#filter-profiles)
 - [Calendars, sensors and ICS subscriptions](#calendars-sensors-and-ics-subscriptions)
 - [Automations](#automations)
+- [Layers & data sources](#layers--data-sources)
 - [Event schema](#event-schema)
 - [Fuzzy schedules](#fuzzy-schedules)
 - [Services reference](#services-reference)
@@ -66,6 +67,12 @@ proximity alerts, your visit history - lives on top.
   importers, experimental LLM extraction from free text, and a
   token-guarded ICS feed any calendar client can subscribe to
   (recurring events exported with TZID + VTIMEZONE).
+- **Geo data layers** (opt-in): aircraft, satellites, vessels,
+  earthquakes, rocket launches, natural events, conflicts, aurora
+  forecast, weather radar, night lights, submarine cables, Tor relays,
+  data centers and more from public sources, rendered natively on the map
+  (canvas, no iframes), combinable with your events, plus a Lovelace card
+  `custom:chronotope-map-card`. See [Layers & data sources](#layers--data-sources).
 
 ## Installation
 
@@ -264,6 +271,130 @@ automation:
           older_than_days: 60
 ```
 
+## Layers & data sources
+
+Beyond your events, Chronotope can show **geographic data layers** from
+public sources on the same map: moving objects (aircraft, satellites,
+vessels), events (earthquakes, launches, natural events, conflicts),
+static objects (data centers, dams, regions, submarine cables, Tor
+relays, radio stations), gridded data (aurora forecast) and raster
+overlays (weather radar, warnings, night lights). They replace the
+iframe embeds people put on dashboards with native, filterable,
+attributable layers.
+
+**Everything is off by default.** Enable the feature in
+**Settings > Devices & services > Chronotope > Configure** ("Enable data
+layers"), then switch on individual layers in the panel's **Layers**
+section. Keys for the few sources that need them go into the second
+options step ("API keys"); they never leave the server.
+
+How it works, in short:
+
+- Data layers are fetched **by Home Assistant**, not by your browser
+  (`custom_components/chronotope/feeds/`): one polite poller per active
+  layer with a minimum interval per source, conditional requests,
+  exponential backoff, a circuit breaker and a "blocked" state for
+  401/403/404/429. Attempt times are persisted so a restart never bypasses
+  a source's minimum interval. Every provider has byte, feature and
+  calls-per-hour budgets; exceeding one keeps the last good data.
+- The panel reads layer data through the authenticated view
+  `GET /api/chronotope/layers/<id>/data` (ETag, gzip, bbox filtering for
+  large feature sets) and renders it on canvas: aircraft interpolate
+  between polls with dead reckoning, satellites are propagated in the
+  browser with `satellite.js`, the aurora grid is drawn cell by cell.
+- **Raster overlays and base map tiles are loaded directly by your
+  browser from the provider** (like the OpenStreetMap tiles always were),
+  which reveals your IP address to that provider. Data layers never do.
+- Event-class layers (earthquakes, launches, ...) become regular events
+  (`feed:<provider>:<id>`, categories `earthquake`, `launch`,
+  `natural:<category>`, `conflict`, `fire`, `fishing`) and therefore
+  appear in profiles, calendars, sensors and the ICS feed. Each provider
+  prunes its own events after its retention period; favorites survive.
+- Moving objects are never stored and never become entities. A small
+  fixed set of aggregate sensors exists instead:
+  `sensor.chronotope_aircraft_nearby`, `sensor.chronotope_vessels_nearby`,
+  `sensor.chronotope_kp_index`, `sensor.chronotope_aurora_probability_at_home`
+  (each only while its layer runs) plus a `layers` attribute with
+  freshness per layer on `sensor.chronotope_statistics`.
+- Chronotope does not redistribute any third-party data: nothing is
+  bundled in the repository, everything is fetched at runtime and cached
+  under `<config>/chronotope_cache/`. Attribution for every active source
+  is shown in the map's attribution control.
+
+### Sources
+
+| Layer | Source | License / terms | Attribution | Key | NC |
+|---|---|---|---|---|---|
+| `flights_regional`, `flights_military` | [adsb.lol](https://adsb.lol) v2 API | ODbL 1.0 | adsb.lol contributors | no | no |
+| `flights_opensky` (fallback only) | [OpenSky Network](https://opensky-network.org) | non-commercial; cite Schäfer et al. 2014 | The OpenSky Network | optional OAuth client | **yes** |
+| `satellites_*` | [CelesTrak](https://celestrak.org) GP/OMM | US government data | CelesTrak, T.S. Kelso | no | no |
+| `vessels` | [AISStream](https://aisstream.io) | beta, no formal terms | AISStream.io | **yes** | no |
+| `earthquakes` | [USGS](https://earthquake.usgs.gov) | US public domain | Data courtesy of the U.S. Geological Survey | no | no |
+| `launches` | [Launch Library 2](https://thespacedevs.com) | free use, 15 calls/h anonymous | The Space Devs | optional | no |
+| `natural_events` | [NASA EONET](https://eonet.gsfc.nasa.gov) | NASA, public domain | NASA EONET | no | no |
+| `conflicts`, `conflicts_api` | [UCDP](https://ucdp.uu.se) Candidate | CC BY 4.0, cite per codebook | UCDP | API: **yes** | no |
+| `fires` | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov) | public domain, acknowledge FIRMS | NASA FIRMS | **yes** (MAP_KEY) | no |
+| `fishing` | [Global Fishing Watch](https://globalfishingwatch.org) | GFW terms of use | Global Fishing Watch | **yes** | no |
+| `datacenters`, `dams` | OpenStreetMap via [Overpass](https://overpass-api.de) | ODbL 1.0 | © OpenStreetMap contributors | no | no |
+| `regions`, `countries` | [Natural Earth](https://www.naturalearthdata.com) (pinned commit) | public domain | Made with Natural Earth | no | no |
+| `submarine_cables` | [TeleGeography](https://www.submarinecablemap.com) | CC BY-NC-SA 3.0 | TeleGeography | no | **yes** |
+| `tor_relays` (relays per country; Onionoo 8.0 publishes no coordinates) | [Onionoo](https://metrics.torproject.org/onionoo.html) | Tor Metrics data (CC0, to be confirmed) | Tor Project | no | no |
+| `radio_stations` | [Radio Browser](https://www.radio-browser.info) | PDDL 1.0 | Community Radio Browser | no | no |
+| `refugees` | [UNHCR Refugee Data Finder](https://www.unhcr.org/refugee-statistics/) | UNHCR terms | UNHCR | no | no |
+| `internet_outages` | [IODA](https://ioda.inetintel.cc.gatech.edu) | IODA terms | IODA, Georgia Tech | no | no |
+| `aurora` + Kp sensor | [NOAA SWPC](https://www.swpc.noaa.gov) OVATION | US government data | NOAA SWPC | no | no |
+| `dwd_radar`, `dwd_warnings`, preset `dwd_wind` | [DWD GeoServer](https://maps.dwd.de) WMS | GeoNutzV | © Deutscher Wetterdienst | no | no |
+| `night_lights` (Black Marble 2016 composite), `thermal_anomalies` (VIIRS NOAA-21) | [NASA GIBS](https://earthdata.nasa.gov/gibs) | NASA, public domain | NASA GIBS / Black Marble, FIRMS | no | no |
+| base map `topplus` | [BKG TopPlusOpen](https://www.bkg.bund.de) WMS | dl-de/by-2-0 | © GeoBasis-DE / BKG | no | no |
+| base map `esri_imagery` | Esri World Imagery | Esri terms, attribution required | Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community | no | no |
+| custom `xyz` / `wmts` / `wms` / `geojson_url` | your URL | yours to check | required field | – | – |
+
+"NC" marks non-commercial licenses; those layers carry an **NC** badge in
+the panel. Lightning strikes are deliberately *not* fetched by
+Chronotope: Blitzortung forbids third-party clients. Use the HACS
+`blitzortung` integration; its `geo_location.*` entities render on the
+panel's geo-feed layer (canvas, fast) and are excluded from the
+geo_location event bridge by default.
+
+### Recipes via HA integrations
+
+- **GDACS disasters** and **USGS earthquakes** also exist as Home
+  Assistant core integrations (`gdacs`, `usgs_earthquakes_feed`); their
+  `geo_location.*` entities show up on the geo-feed layer and, with the
+  geo_location bridge enabled, become events (`geoloc:<entity_id>`).
+- **Blitzortung**: HACS integration `blitzortung` as described above.
+
+### Lovelace card
+
+```yaml
+type: custom:chronotope-map-card
+layers: [flights_regional, satellites_visual]   # ids to show (must be enabled)
+center: [52.52, 13.405]      # optional, default HA home
+zoom: 8                      # optional
+base: osm                    # osm | topplus | esri_imagery
+profile: Weekend with kids   # optional, shows the profile's events
+show_events: true
+show_layer_toggle: true      # compact checkbox overlay in the card
+height: 400px                # use 100% in panel views
+```
+
+The card is registered automatically (`chronotope-card.js`); no resource
+entry is needed. It shows layers that are enabled in the panel and never
+starts a provider on its own.
+
+### Deep links
+
+The panel accepts `?layers=a,b&lat=..&lon=..&z=..&profile=..&base=..`
+in its URL. These override the stored view for that visit without
+replacing it.
+
+### Probing sources
+
+`scripts/probe_sources.py` (stdlib only, not in CI) calls every endpoint
+once and prints status, content type, size and a schema sample. Run it
+before changing a provider; keys are read from `AISSTREAM_KEY`,
+`FIRMS_KEY`, `GFW_TOKEN`, `UCDP_TOKEN`.
+
 ## Event schema
 
 | Field | Type | Notes |
@@ -333,12 +464,18 @@ token (generated at setup, stored in `.storage/chronotope`), accepted as
 | `GET /api/chronotope/calendar.ics` | filtered ICS feed (see above) |
 | `POST /api/chronotope/events` | scraper ingest (single/list/`{"events"}`) |
 
+Layer data uses regular HA authentication instead (the panel sends its
+token): `GET /api/chronotope/layers/<id>/data[?bbox=&zoom=]` (GeoJSON
+profile with `meta`, ETag/304, gzip) and
+`GET /api/chronotope/layers/<id>/legend` (WMS legend proxy).
+
 ## WebSocket API
 
 For custom frontends and advanced tooling:
 `chronotope/events/save|delete|flag|query`, `chronotope/categories`,
 `chronotope/stats`, `chronotope/profiles/save|delete|list`,
-`chronotope/ics_url`, `chronotope/places/lookup`. Example query payload:
+`chronotope/ics_url`, `chronotope/places/lookup`, and for layers
+`chronotope/layers/catalog|list|save|delete|status|preview`. Example query payload:
 
 ```js
 { "type": "chronotope/events/query",
@@ -369,6 +506,10 @@ Responses include `distance_km` (when a center is set), `occurrences`
 | Proximity detection | on | `chronotope_nearby` events + visit history |
 | Proximity radius (km) | 0.5 | match distance for running events |
 | Mirror geo_location entities | off | earthquake/disaster/GeoJSON feed entities become events (`geoloc:<entity_id>`, category `geo:<source>`, rolling end while the feed entity exists) |
+| geo_location sources | empty | allow-list of `source` attributes to mirror; empty means all except `blitzortung` |
+| Enable data layers | off | master switch for the geo data layers; individual layers are enabled in the panel |
+| Default center | HA home | center for regional layers (aircraft radius, vessels); only stored when changed |
+| API keys (second step) | empty | AISStream, NASA FIRMS, Global Fishing Watch, UCDP, OpenSky client credentials, Launch Library token |
 
 ## Notes & limitations
 
@@ -387,15 +528,21 @@ Responses include `distance_km` (when a center is set), `occurrences`
   push events. Treat the URL like a password; it is not your HA login.
 - The panel UI is English by default and switches to German automatically
   when your HA profile language is German.
-- No external requests from the core: the frontend loads only OSM tiles;
-  geocoding is the data source's job (the address cache keeps it to once
-  per address); backend fetches happen only for user-initiated imports.
+- No external requests from the core: the frontend loads only base map
+  and raster overlay tiles; geocoding is the data source's job (the
+  address cache keeps it to once per address); backend fetches happen
+  only for user-initiated imports and for data layers you switched on.
+- Layer endpoints were probed on 2026-09-17 (`scripts/probe_sources.py`);
+  only OpenSky could not be reached from a cloud network. Keyed sources
+  (FIRMS, GFW, UCDP API) are implemented from their documentation; open
+  an issue if a provider stays in `error`.
 
 ## Development
 
 ```sh
-cd frontend && npm ci && npm run build   # panel bundle (vendored/committed)
-python3 -m unittest discover -s tests    # HA-free tests (store, ICS, importers)
+cd frontend && npm ci && npm run build   # panel + card bundles (vendored/committed)
+python3 -m unittest discover -s tests    # HA-free tests (store, ICS, importers, feeds)
+python3 scripts/probe_sources.py         # live check of every layer endpoint
 ```
 
 Architecture details live in [CLAUDE.md](CLAUDE.md) (German - it is the

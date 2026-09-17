@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { t } from "./i18n.js";
+import { define } from "./define.js";
 import { ICON_CHEVRON_DOWN, ICON_CHEVRON_UP } from "./icons.js";
 
 /**
@@ -16,6 +17,7 @@ class ChronotopeFilterBar extends LitElement {
     selectedProfileId: { attribute: false },
     stats: { attribute: false },
     collapsed: { type: Boolean, reflect: true },
+    layersCollapsed: { type: Boolean },
     narrow: { type: Boolean, reflect: true },
     _profileName: { state: true },
   };
@@ -25,6 +27,7 @@ class ChronotopeFilterBar extends LitElement {
     this.profiles = [];
     this.selectedProfileId = "";
     this.collapsed = false;
+    this.layersCollapsed = true;
     this.narrow = false;
     this._profileName = "";
   }
@@ -172,6 +175,17 @@ class ChronotopeFilterBar extends LitElement {
     }
     .ics-button:hover {
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
+    }
+    .group.layers {
+      flex-basis: 100%;
+    }
+    .layers-toggle {
+      padding: 0;
+      justify-content: flex-start;
+      gap: 6px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     details.stats {
       font-size: 12px;
@@ -437,6 +451,17 @@ class ChronotopeFilterBar extends LitElement {
           ${this._renderStats()}
         </div>
 
+        <div class="group layers">
+          <button
+            class="toggle-row layers-toggle"
+            @click=${() => this.dispatchEvent(new CustomEvent("toggle-layers"))}
+          >
+            <span>${t("layers.label")}</span>
+            ${this.layersCollapsed ? ICON_CHEVRON_DOWN : ICON_CHEVRON_UP}
+          </button>
+          ${this.layersCollapsed ? nothing : html`<slot name="layers"></slot>`}
+        </div>
+
         <div class="group">
           <span class="label">${t("view.label")}</span>
           <button
@@ -560,4 +585,4 @@ class ChronotopeFilterBar extends LitElement {
   }
 }
 
-customElements.define("chronotope-filter-bar", ChronotopeFilterBar);
+define("chronotope-filter-bar", ChronotopeFilterBar);

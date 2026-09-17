@@ -12,11 +12,16 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from . import websocket_api
+from . import layers_ws, websocket_api
+from .feeds import FeedManager
+from .feeds.views import ChronotopeLayerDataView, ChronotopeLayerLegendView
 from .geoloc import async_setup_geoloc_ingest
 from .nearby import async_setup_nearby
 from .services import async_register_services
 from .const import (
+    CARD_SCRIPT_URL,
+    DATA_CARD_REGISTERED,
+    DATA_FEEDS,
     DATA_STORE,
     DATA_TOKEN,
     DATA_VIEW_REGISTERED,
@@ -60,10 +65,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # once per HA run; the flags survive unload/reload of the entry.
     if not domain_data.get(DATA_WS_REGISTERED):
         websocket_api.async_register(hass)
+        layers_ws.async_register(hass)
         domain_data[DATA_WS_REGISTERED] = True
     if not domain_data.get(DATA_VIEW_REGISTERED):
         hass.http.register_view(ChronotopeICSView)
         hass.http.register_view(ChronotopeIngestView)
+        hass.http.register_view(ChronotopeLayerDataView)
+        hass.http.register_view(ChronotopeLayerLegendView)
         domain_data[DATA_VIEW_REGISTERED] = True
     if not domain_data.get(DATA_STATIC_REGISTERED):
         await hass.http.async_register_static_paths(
@@ -95,6 +103,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         embed_iframe=False,
     )
 
+    # Lovelace card bundle (custom:chronotope-map-card), cache-busted like
+    # the panel; registered once per HA run.
+    if not domain_data.get(DATA_CARD_REGISTERED):
+        card_path = Path(__file__).parent / "frontend" / "chronotope-card.js"
+        card_version = int(
+            await hass.async_add_executor_job(
+                lambda: card_path.stat().st_mtime if card_path.exists() else 0
+            )
+        )
+        frontend.add_extra_js_url(hass, f"{CARD_SCRIPT_URL}?v={card_version}")
+        domain_data[DATA_CARD_REGISTERED] = True
+
+    # Geo layers: providers start only when enabled in the options.
+    manager = FeedManager(hass, entry)
+    domain_data[DATA_FEEDS] = manager
+    await manager.async_setup()
+
     async_register_services(hass)
     async_setup_nearby(hass, entry)
     async_setup_geoloc_ingest(hass, entry)
@@ -115,6 +140,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     frontend.async_remove_panel(hass, PANEL_URL_PATH)
     domain_data = hass.data.get(DOMAIN, {})
+    manager: FeedManager | None = domain_data.pop(DATA_FEEDS, None)
+    if manager is not None:
+        await manager.async_shutdown()
     event_store: EventStore | None = domain_data.pop(DATA_STORE, None)
     domain_data.pop(DATA_TOKEN, None)
     if event_store is not None:

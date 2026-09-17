@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { t } from "./i18n.js";
+import { define } from "./define.js";
 import {
   ICON_EYE,
   ICON_EYE_OFF,
@@ -268,4 +269,4 @@ class ChronotopeEventList extends LitElement {
   }
 }
 
-customElements.define("chronotope-event-list", ChronotopeEventList);
+define("chronotope-event-list", ChronotopeEventList);
