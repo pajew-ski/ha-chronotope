@@ -17,7 +17,23 @@
         "data": {
           "nearby_enabled": "Enable proximity detection (chronotope_nearby events, visit history)",
           "nearby_radius_km": "Proximity radius (km)",
-          "geoloc_ingest_enabled": "Mirror geo_location entities as events (earthquake/disaster/GeoJSON feeds)"
+          "geoloc_ingest_enabled": "Mirror geo_location entities as events (earthquake/disaster/GeoJSON feeds)",
+          "geoloc_sources": "geo_location sources to mirror (comma-separated allow-list; empty = all except blitzortung)",
+          "layers_enabled": "Enable data layers (external map sources, opt-in per layer in the panel)",
+          "layers_center_lat": "Default center latitude for regional layers",
+          "layers_center_lon": "Default center longitude for regional layers"
+        }
+      },
+      "api_keys": {
+        "title": "API keys for data layers",
+        "description": "Optional. Keys stay in the config entry and are never sent to the browser or written to logs. Leave a field empty to keep the stored value.",
+        "data": {
+          "api_key_aisstream": "AISStream API key (vessels)",
+          "api_key_firms": "NASA FIRMS MAP_KEY (fires)",
+          "api_key_gfw": "Global Fishing Watch token (fishing)",
+          "api_key_ucdp": "UCDP API access token (conflicts API)",
+          "api_key_opensky": "OpenSky client_id:client_secret (flights fallback)",
+          "api_key_ll2": "Launch Library 2 token (launches)"
         }
       }
     }

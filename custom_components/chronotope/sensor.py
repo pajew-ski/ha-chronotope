@@ -6,14 +6,17 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_STORE, DOMAIN
+from .const import DATA_FEEDS, DATA_STORE, DOMAIN, SIGNAL_LAYER_DATA, SIGNAL_LAYERS_CHANGED
 from .entity import ChronotopeEntity, async_setup_profile_entities
-from .store import EventStore
+from .store import EventStore, haversine_km
 
 SCAN_INTERVAL = timedelta(minutes=15)
 
@@ -47,6 +50,7 @@ async def async_setup_entry(
         ],
     )
     async_add_entities([ChronotopeStatsSensor(entry, store)], update_before_add=True)
+    await async_setup_layer_sensors(hass, entry, async_add_entities)
 
 
 class ChronotopeNextEventSensor(ChronotopeEntity, SensorEntity):
@@ -141,6 +145,197 @@ class ChronotopeStatsSensor(ChronotopeEntity, SensorEntity):
     async def async_update(self) -> None:
         stats = await self.hass.async_add_executor_job(self._store.stats)
         self._attr_native_value = stats["total_events"]
+        attributes = {key: value for key, value in stats.items() if key != "total_events"}
+        manager = self.hass.data.get(DOMAIN, {}).get(DATA_FEEDS)
+        # Layer health (6.4): {layer_id: {freshness, last_success, last_error, count}}
+        attributes["layers"] = manager.sensor_summary() if manager else {}
+        self._attr_extra_state_attributes = attributes
+
+
+# ------------------------------------------------------------ layer sensors
+#
+# A fixed, small set of aggregate sensors (I3): no entity per tracked object.
+# Each exists only while its layer is active and refreshes on provider data.
+
+_LAYER_SENSORS: dict[str, tuple[str, type]] = {}
+
+
+def _register(layer_id: str):
+    def wrap(cls):
+        _LAYER_SENSORS[cls.KIND] = (layer_id, cls)
+        return cls
+
+    return wrap
+
+
+class ChronotopeLayerSensor(SensorEntity):
+    KIND = ""
+    LAYER_ID = ""
+    _attr_should_poll = False
+
+    def __init__(self, entry: ConfigEntry, hass: HomeAssistant) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}-layer-{self.KIND}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Chronotope",
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def _provider(self):
+        manager = self.hass.data.get(DOMAIN, {}).get(DATA_FEEDS)
+        return manager.provider(self.LAYER_ID) if manager else None
+
+    @property
+    def _manager(self):
+        return self.hass.data.get(DOMAIN, {}).get(DATA_FEEDS)
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_LAYER_DATA, self._layer_data)
+        )
+        self._refresh()
+
+    @callback
+    def _layer_data(self, layer_id: str) -> None:
+        if layer_id == self.LAYER_ID:
+            self._refresh()
+            self.async_write_ha_state()
+
+    def _refresh(self) -> None:
+        raise NotImplementedError
+
+
+def _nearby(provider, manager, kind: str) -> tuple[int, dict[str, Any]]:
+    """Count features within the layer radius; nearest as attributes."""
+    lat, lon = provider.center()
+    radius_km = provider.radius_nm() * 1.852
+    features = (provider._payload or {}).get("features") or []
+    nearest = None
+    count = 0
+    for feature in features:
+        coords = (feature.get("geometry") or {}).get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        distance = haversine_km(lat, lon, coords[1], coords[0])
+        if distance is None or distance > radius_km:
+            continue
+        count += 1
+        if nearest is None or distance < nearest[0]:
+            nearest = (distance, feature)
+    attributes: dict[str, Any] = {"radius_km": round(radius_km, 1), "freshness": provider.policy.freshness(provider.interval_s)}
+    if nearest:
+        distance, feature = nearest
+        props = feature["properties"]
+        attributes["nearest_label"] = props.get("label")
+        attributes["nearest_distance_km"] = round(distance, 2)
+        if kind == "aircraft":
+            attributes["nearest_alt_m"] = props.get("alt_m")
+        attributes["nearest_track"] = props.get("track")
+        attributes["nearest_detail"] = props.get("detail")
+    return count, attributes
+
+
+@_register("flights_regional")
+class ChronotopeAircraftNearbySensor(ChronotopeLayerSensor):
+    KIND = "aircraft_nearby"
+    LAYER_ID = "flights_regional"
+    _attr_name = "Chronotope aircraft nearby"
+    _attr_icon = "mdi:airplane"
+    _attr_native_unit_of_measurement = "aircraft"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def _refresh(self) -> None:
+        provider = self._provider
+        if provider is None:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
+        self._attr_native_value, self._attr_extra_state_attributes = _nearby(provider, self._manager, "aircraft")
+
+
+@_register("vessels")
+class ChronotopeVesselsNearbySensor(ChronotopeLayerSensor):
+    KIND = "vessels_nearby"
+    LAYER_ID = "vessels"
+    _attr_name = "Chronotope vessels nearby"
+    _attr_icon = "mdi:ferry"
+    _attr_native_unit_of_measurement = "vessels"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def _refresh(self) -> None:
+        provider = self._provider
+        if provider is None:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
+        self._attr_native_value, self._attr_extra_state_attributes = _nearby(provider, self._manager, "vessel")
+
+
+@_register("aurora")
+class ChronotopeKpSensor(ChronotopeLayerSensor):
+    KIND = "kp_index"
+    LAYER_ID = "aurora"
+    _attr_name = "Chronotope Kp index"
+    _attr_icon = "mdi:sun-wireless-outline"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def _refresh(self) -> None:
+        provider = self._provider
+        kp = getattr(provider, "kp", None) if provider else None
+        self._attr_native_value = kp["kp"] if kp else None
+        self._attr_extra_state_attributes = {"time": kp["time"]} if kp else {}
+
+
+@_register("aurora")
+class ChronotopeAuroraHomeSensor(ChronotopeLayerSensor):
+    KIND = "aurora_probability_home"
+    LAYER_ID = "aurora"
+    _attr_name = "Chronotope aurora probability at home"
+    _attr_icon = "mdi:aurora"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def _refresh(self) -> None:
+        provider = self._provider
+        if provider is None or not hasattr(provider, "value_at"):
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
+        lat, lon = self._manager.home_center
+        self._attr_native_value = provider.value_at(lat, lon)
         self._attr_extra_state_attributes = {
-            key: value for key, value in stats.items() if key != "total_events"
+            "forecast_time": provider.policy.extra.get("forecast_time"),
+            "freshness": provider.policy.freshness(provider.interval_s),
         }
+
+
+async def async_setup_layer_sensors(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    """Add/remove the aggregate layer sensors as layers start and stop."""
+    known: dict[str, ChronotopeLayerSensor] = {}
+
+    @callback
+    def _sync() -> None:
+        manager = hass.data.get(DOMAIN, {}).get(DATA_FEEDS)
+        registry = er.async_get(hass)
+        new_entities: list[ChronotopeLayerSensor] = []
+        for kind, (layer_id, cls) in _LAYER_SENSORS.items():
+            active = manager is not None and manager.provider(layer_id) is not None
+            if active and kind not in known:
+                entity = cls(entry, hass)
+                known[kind] = entity
+                new_entities.append(entity)
+            elif not active and kind in known:
+                entity = known.pop(kind)
+                entity_id = registry.async_get_entity_id("sensor", DOMAIN, entity.unique_id)
+                if entity_id:
+                    registry.async_remove(entity_id)
+        if new_entities:
+            async_add_entities(new_entities)
+
+    _sync()
+    entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_LAYERS_CHANGED, _sync))

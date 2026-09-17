@@ -17,7 +17,23 @@
         "data": {
           "nearby_enabled": "Näheerkennung aktivieren (chronotope_nearby-Events, Besuchshistorie)",
           "nearby_radius_km": "Radius für Näheerkennung (km)",
-          "geoloc_ingest_enabled": "geo_location-Entities als Events übernehmen (Erdbeben-/Katastrophen-/GeoJSON-Feeds)"
+          "geoloc_ingest_enabled": "geo_location-Entities als Events übernehmen (Erdbeben-/Katastrophen-/GeoJSON-Feeds)",
+          "geoloc_sources": "Zu spiegelnde geo_location-Quellen (kommagetrennte Allow-Liste; leer = alle außer blitzortung)",
+          "layers_enabled": "Datenlayer aktivieren (externe Kartenquellen, je Layer opt-in im Panel)",
+          "layers_center_lat": "Standard-Mittelpunkt für regionale Layer: Breitengrad",
+          "layers_center_lon": "Standard-Mittelpunkt für regionale Layer: Längengrad"
+        }
+      },
+      "api_keys": {
+        "title": "API-Schlüssel für Datenlayer",
+        "description": "Optional. Schlüssel bleiben im Config-Entry und gehen nie an den Browser oder ins Log. Leeres Feld behält den gespeicherten Wert.",
+        "data": {
+          "api_key_aisstream": "AISStream-API-Schlüssel (Schiffe)",
+          "api_key_firms": "NASA FIRMS MAP_KEY (Brandherde)",
+          "api_key_gfw": "Global-Fishing-Watch-Token (Fischerei)",
+          "api_key_ucdp": "UCDP-API-Token (Konflikte, API)",
+          "api_key_opensky": "OpenSky client_id:client_secret (Flug-Rückfall)",
+          "api_key_ll2": "Launch-Library-2-Token (Raketenstarts)"
         }
       }
     }
