@@ -11,7 +11,8 @@
   "dependencies": {
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
-    "lit": "^3.2.1"
+    "lit": "^3.2.1",
+    "satellite.js": "^6.0.2"
   },
   "devDependencies": {
     "esbuild": "^0.24.2"

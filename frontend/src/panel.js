@@ -3,6 +3,9 @@ import "./map-view.js";
 import "./filter-bar.js";
 import "./event-list.js";
 import "./event-editor.js";
+import "./layer-panel.js";
+import { LayerRegistry } from "./layers/registry.js";
+import { define } from "./define.js";
 import {
   queryEvents,
   fetchCategories,
@@ -28,8 +31,11 @@ const DISPLAY_ONLY_KEYS = new Set([
   "filtersCollapsed",
 ]);
 // Filter/layer state persists per browser; bump the version when the
-// filter shape changes incompatibly.
-const STORAGE_KEY = "chronotope-panel-state-v1";
+// filter shape changes incompatibly. v2 adds basemap and layer panel state
+// (spec 7.1) and migrates v1 on first load.
+const STORAGE_KEY = "chronotope-panel-state-v2";
+const LEGACY_STORAGE_KEYS = ["chronotope-panel-state-v1"];
+const STATUS_POLL_MS = 30000;
 
 function defaultFilters() {
   return {
@@ -86,6 +92,10 @@ class ChronotopePanel extends LitElement {
     _editing: { state: true },
     _capture: { state: true },
     _stats: { state: true },
+    _basemap: { state: true },
+    _layersCollapsed: { state: true },
+    _layerVersion: { state: true },
+    _mapCenter: { state: true },
   };
 
   static styles = css`
@@ -177,12 +187,37 @@ class ChronotopePanel extends LitElement {
     this._stats = null;
     this._filters = defaultFilters();
     this._initialized = false;
+    this._basemap = "osm";
+    this._layersCollapsed = true;
+    this._layerVersion = 0;
+    this._mapCenter = null;
+    this._deepLink = null;
+    this._registry = new LayerRegistry({
+      hass: null,
+      onChange: () => {
+        this._layerVersion += 1;
+      },
+    });
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._statusTimer = setInterval(() => {
+      if (!document.hidden && this._registry.layersEnabled) this._registry.refreshStatus().catch(() => {});
+    }, STATUS_POLL_MS);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this._statusTimer);
+    this._registry.stop();
   }
 
   willUpdate(changed) {
     if (changed.has("hass") && this.hass) {
       setLanguage(this.hass.locale?.language || this.hass.language);
     }
+    if (changed.has("hass") && this.hass) this._registry.setHass(this.hass);
     if (changed.has("hass") && this.hass && !this._initialized) {
       this._initialized = true;
       const persisted = this._loadPersistedState();
@@ -195,28 +230,69 @@ class ChronotopePanel extends LitElement {
           persisted?.filters?.filtersCollapsed ?? Boolean(this.narrow),
       };
       this._selectedProfileId = persisted?.selectedProfileId || "";
+      this._basemap = persisted?.basemap || "osm";
+      this._layersCollapsed = persisted?.layersCollapsed ?? true;
+      // Deep link (7.8): URL parameters win over the stored state for this
+      // visit but are not persisted.
+      this._deepLink = this._parseDeepLink();
+      if (this._deepLink?.base) this._basemap = this._deepLink.base;
+      if (this._deepLink?.profile) this._selectedProfileId = this._deepLink.profile;
       this._loadCategories();
       this._loadProfiles();
       this._loadStats();
+      this._loadLayers();
       this._runQuery();
     }
   }
 
   updated(changed) {
     if (!this._initialized) return;
-    if (changed.has("_filters") || changed.has("_selectedProfileId")) {
-      try {
-        window.localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({
-            filters: this._filters,
-            selectedProfileId: this._selectedProfileId,
-          })
-        );
-      } catch (err) {
-        // Storage full or blocked: the panel still works, just non-sticky.
-      }
+    if (
+      changed.has("_filters") ||
+      changed.has("_selectedProfileId") ||
+      changed.has("_basemap") ||
+      changed.has("_layersCollapsed")
+    ) {
+      this._persistState();
     }
+  }
+
+  _persistState() {
+    if (this._deepLink) return; // ephemeral view, see _parseDeepLink
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          version: 2,
+          filters: this._filters,
+          selectedProfileId: this._selectedProfileId,
+          basemap: this._basemap,
+          layersCollapsed: this._layersCollapsed,
+        })
+      );
+    } catch (err) {
+      // Storage full or blocked: the panel still works, just non-sticky.
+    }
+  }
+
+  _parseDeepLink() {
+    let params;
+    try {
+      params = new URLSearchParams(window.location.search);
+    } catch (err) {
+      return null;
+    }
+    const keys = ["layers", "lat", "lon", "z", "profile", "base"];
+    if (!keys.some((key) => params.has(key))) return null;
+    const lat = Number(params.get("lat"));
+    const lon = Number(params.get("lon"));
+    return {
+      layers: (params.get("layers") || "").split(",").map((v) => v.trim()).filter(Boolean),
+      center: Number.isFinite(lat) && Number.isFinite(lon) && params.has("lat") ? [lat, lon] : null,
+      zoom: params.has("z") ? Number(params.get("z")) : null,
+      profile: params.get("profile") || null,
+      base: params.get("base") || null,
+    };
   }
 
   _homeCenter() {
@@ -229,7 +305,19 @@ class ChronotopePanel extends LitElement {
   _loadPersistedState() {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
+      if (raw) return JSON.parse(raw);
+      // Migration from v1: same filter shape, no basemap/layer state yet.
+      for (const legacyKey of LEGACY_STORAGE_KEYS) {
+        const legacy = window.localStorage.getItem(legacyKey);
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          const migrated = { version: 2, filters: parsed.filters || {}, selectedProfileId: parsed.selectedProfileId || "", basemap: "osm", layersCollapsed: true };
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+          window.localStorage.removeItem(legacyKey);
+          return migrated;
+        }
+      }
+      return null;
     } catch (err) {
       console.warn("chronotope: persisted panel state unreadable", err);
       return null;
@@ -244,9 +332,73 @@ class ChronotopePanel extends LitElement {
     }
     this._filters = { ...defaultFilters(), center: this._homeCenter() };
     this._selectedProfileId = "";
+    this._basemap = "osm";
+    this._layersCollapsed = true;
     this._icsCopied = false;
     this._error = null;
     this._scheduleQuery();
+  }
+
+  // --------------------------------------------------------------- layers
+
+  async _loadLayers() {
+    try {
+      await this._registry.loadCatalog();
+      await this._registry.loadConfigs();
+      this._registry.start();
+      if (this._deepLink?.layers?.length) {
+        for (const id of this._deepLink.layers) {
+          if (!this._registry.configFor(id)?.enabled && this._registry.spec(id)) {
+            await this._registry.setEnabled(id, true);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("chronotope: loading layers failed", err);
+    }
+  }
+
+  async _onLayerToggle(ev) {
+    try {
+      await this._registry.setEnabled(ev.detail.id, ev.detail.enabled);
+      this._error = null;
+      if (this._registry.spec(ev.detail.id)?.klass === "events") {
+        this._scheduleQuery();
+        this._loadCategories();
+      }
+    } catch (err) {
+      this._error = t("error.layers", { msg: err.message || err.code || err });
+    }
+  }
+
+  async _onLayerSave(ev) {
+    try {
+      await this._registry.save(ev.detail.layer);
+      this._error = null;
+    } catch (err) {
+      this._error = t("error.layers", { msg: err.message || err.code || err });
+    }
+  }
+
+  async _onLayerDelete(ev) {
+    try {
+      await this._registry.remove(ev.detail.id);
+    } catch (err) {
+      this._error = t("error.layers", { msg: err.message || err.code || err });
+    }
+  }
+
+  async _onLayerPreview(ev) {
+    try {
+      ev.detail.resolve(await this._registry.preview(ev.detail.layer));
+    } catch (err) {
+      ev.detail.resolve({ ok: false, error: err.message || err.code || String(err) });
+    }
+  }
+
+  _onViewportChanged(ev) {
+    this._mapCenter = ev.detail.center;
+    this._registry.setViewport(ev.detail.bbox, ev.detail.zoom);
   }
 
   async _loadStats() {
@@ -292,8 +444,12 @@ class ChronotopePanel extends LitElement {
         .selectedProfileId=${this._selectedProfileId}
         .stats=${this._stats}
         .collapsed=${this._filters.filtersCollapsed}
+        .layersCollapsed=${this._layersCollapsed}
         .narrow=${Boolean(this.narrow)}
         @toggle-collapsed=${this._onToggleFilters}
+        @toggle-layers=${() => {
+          this._layersCollapsed = !this._layersCollapsed;
+        }}
         @filters-changed=${this._onFiltersChanged}
         @ics-requested=${this._onIcsRequested}
         @profile-selected=${this._onProfileSelected}
@@ -301,7 +457,27 @@ class ChronotopePanel extends LitElement {
         @profile-delete=${this._onProfileDelete}
         @stats-requested=${this._loadStats}
         @reset-requested=${this._onResetView}
-      ></chronotope-filter-bar>
+      >
+        <chronotope-layer-panel
+          slot="layers"
+          .catalog=${this._registry.catalog}
+          .configs=${this._registry.configs}
+          .freshness=${(id) => this._registry.freshness(id)}
+          .version=${this._layerVersion}
+          .layersEnabled=${Boolean(this._registry.layersEnabled)}
+          .basemap=${this._basemap}
+          .mapCenter=${this._mapCenter}
+          .homeCenter=${this._homeCenter()}
+          .narrow=${Boolean(this.narrow)}
+          @layer-toggle=${this._onLayerToggle}
+          @layer-save=${this._onLayerSave}
+          @layer-delete=${this._onLayerDelete}
+          @layer-preview=${this._onLayerPreview}
+          @basemap-changed=${(ev) => {
+            this._basemap = ev.detail.basemap;
+          }}
+        ></chronotope-layer-panel>
+      </chronotope-filter-bar>
       ${this._error ? html`<div class="error">${this._error}</div>` : ""}
       <div class="content ${this.narrow ? "narrow" : ""}">
         <chronotope-event-list
@@ -323,8 +499,14 @@ class ChronotopePanel extends LitElement {
           .capture=${this._capture}
           .selectedId=${this._selectedId}
           .dark=${dark}
+          .basemap=${this._basemap}
+          .basemaps=${this._registry.catalog.basemaps}
+          .registry=${this._registry}
+          .layerVersion=${this._layerVersion}
+          .initialView=${this._deepLink?.center ? { center: this._deepLink.center, zoom: this._deepLink.zoom || 10 } : null}
           @map-click=${this._onMapClick}
           @event-selected=${this._onEventSelected}
+          @viewport-changed=${this._onViewportChanged}
         ></chronotope-map-view>
         ${this._editing !== null
           ? html`<chronotope-event-editor
@@ -488,7 +670,25 @@ class ChronotopePanel extends LitElement {
   _onProfileSelected(ev) {
     this._selectedProfileId = ev.detail.id;
     const profile = this._profiles.find((p) => p.id === ev.detail.id);
-    if (profile) this._applyProfileFilters(profile.filters || {});
+    if (profile) {
+      this._applyProfileFilters(profile.filters || {});
+      this._applyProfileLayers(profile.filters?.layers);
+    }
+  }
+
+  /** Profiles may carry `layers: [ids]`; applying enables those layers and
+   * leaves every other layer untouched (7.1). */
+  async _applyProfileLayers(ids) {
+    if (!Array.isArray(ids) || !ids.length) return;
+    for (const id of ids) {
+      if (!this._registry.configFor(id)?.enabled && this._registry.spec(id)) {
+        try {
+          await this._registry.setEnabled(id, true);
+        } catch (err) {
+          console.warn("chronotope: enabling layer from profile failed", id, err);
+        }
+      }
+    }
   }
 
   _applyProfileFilters(f) {
@@ -517,7 +717,7 @@ class ChronotopePanel extends LitElement {
       const result = await saveProfile(this.hass, {
         id: ev.detail.id,
         name: ev.detail.name,
-        filters: buildWsFilters(this._filters),
+        filters: { ...buildWsFilters(this._filters), layers: this._registry.activeIds() },
       });
       await this._loadProfiles();
       this._selectedProfileId = result.profile.id;
@@ -647,4 +847,4 @@ class ChronotopePanel extends LitElement {
   }
 }
 
-customElements.define("chronotope-panel", ChronotopePanel);
+define("chronotope-panel", ChronotopePanel);
