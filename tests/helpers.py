@@ -12,7 +12,9 @@ _PACKAGE_DIR = Path(__file__).resolve().parent.parent / "custom_components" / "c
 
 
 def load_module(name: str):
-    module_name = f"chronotope_test_{name}"
+    """Load ``<name>.py`` from the integration; ``name`` may contain
+    slashes for subpackages (``feeds/policy``)."""
+    module_name = "chronotope_test_" + name.replace("/", "_")
     if module_name in sys.modules:
         return sys.modules[module_name]
     spec = importlib.util.spec_from_file_location(
