@@ -61,5 +61,8 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
-      - name: Committed bundle must match the source
-        run: git diff --exit-code custom_components/chronotope/frontend/chronotope-panel.js
+      - name: Committed bundles must match the source
+        run: |
+          git diff --exit-code custom_components/chronotope/frontend/chronotope-panel.js
+          git diff --exit-code custom_components/chronotope/frontend/chronotope-card.js
+          git status --porcelain custom_components/chronotope/frontend/ | grep -q . && { echo "untracked bundle output"; exit 1; } || true

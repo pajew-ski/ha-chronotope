@@ -28,6 +28,14 @@ Alle Teile unter `custom_components/chronotope/`:
      speisen Panel, Kalender-Entities, Sensoren, Digest und ICS-Abos
    - `visits` - Besuchshistorie (Event × Person, first/last_seen), gefüllt
      von der Näheerkennung; hängt als `visits` an Query-Ergebnissen
+   - `layers` - Layer-Konfigurationen (`id, payload JSON, updated_at`):
+     eingebaute Layer (`layer_id` aus dem Katalog, enabled, interval_s,
+     params, opacity) und generische Layer (`custom_<hex>`, provider
+     `xyz|wmts|wms|geojson_url`, https-Pflicht, Platzhalter-Prüfung,
+     Attribution Pflicht). `validate_layer_config` prüft nur die Form,
+     nicht den Katalog (Domänenneutralität). `delete_events_by_prefix`
+     ist die Retention für Feed-Events (`feed:<provider>:…`, Favoriten
+     bleiben).
 
    Schema-Upgrades laufen beim Öffnen in-place über `ALTER TABLE`
    (`_MIGRATED_COLUMNS`). Filter (`QueryFilter`, kombinierbar):
@@ -61,6 +69,11 @@ Alle Teile unter `custom_components/chronotope/`:
    - `chronotope/profiles/save|delete|list`
    - `chronotope/ics_url` (Filter- oder Profil-basiert)
    - `chronotope/places/lookup` (Adress-Geo-Cache)
+   - Layer (`layers_ws.py`): `chronotope/layers/catalog|list|save|delete|
+     status|preview` - Katalog inkl. Presets, Basiskarten und `key_set`
+     (bool, nie der Wert), Konfigurationen mit Frische, Speichern startet/
+     stoppt den Provider ohne Entry-Reload, `preview` macht einen
+     Testabruf für generische Layer.
    Schreiboperationen feuern `chronotope_event_added|updated|deleted` auf
    dem HA-Bus plus interne Dispatcher-Signale (`signals.py`) für die
    Entity-Aktualisierung.
@@ -78,8 +91,49 @@ Alle Teile unter `custom_components/chronotope/`:
      `?dedupe=0` aus). Beide Endpoints sind unauthenticated, aber durch das
      bei Setup generierte Token geschützt (Query-Param `token` oder
      `Authorization: Bearer`; persistiert in `.storage/chronotope`).
+   - `feeds/views.py`: `GET /api/chronotope/layers/{id}/data` (HA-Auth,
+     `requires_auth = True`; optional `bbox`, `zoom`; GeoJSON-Profil aus
+     Spec 5.3 mit `meta`; ETag/304, gzip, `Cache-Control: no-cache`) und
+     `GET /api/chronotope/layers/{id}/legend` (WMS-GetLegendGraphic-Proxy,
+     1 MB Cap).
 
-4. **HA-Schicht**:
+4. **Feed-Schicht** (`feeds/`, Spec `docs/spec-geo-layers.md`): der
+   einzige Ort mit externen Requests der Integration (I2), alles opt-in.
+   - `catalog.py` - HA-freier Layerkatalog (`LayerSpec`, `Budget`,
+     `LicenseInfo`), Presets, Basiskarten, `KEY_OPTIONS` (Schlüssel-
+     Optionen im Config-Entry), `validate_params` gegen ein JSON-
+     serialisierbares `params_schema`.
+   - `policy.py` - HA-freie Politeness-Zustandsmaschine (`FeedPolicy`):
+     Mindestintervall, bedingte Requests (ETag/Last-Modified),
+     exponentieller Backoff bis 1 h, Circuit-Breaker nach 5 Fehlern,
+     `blocked` bei 301/401/403/404/429 (Retry-After oder 6 h), Budget-
+     Überschreitung = `error` mit letztem Stand; Persistenz via
+     `to_dict/from_dict` durch den Manager (`.storage/chronotope_feeds`).
+   - `base.py` - `FeedProvider`: Polling-Loop, `fetch_url` mit User-Agent,
+     20-s-Timeout, Streaming-Bytebudget, kein Redirect-Following,
+     Abrufe/Stunde-Budget, Platten-Cache `<config>/chronotope_cache/
+     <layer_id>.json.gz`, `snapshot()` für die View, Events-Klasse schreibt
+     in den Store und räumt per Retention.
+   - `__init__.py` - `FeedManager` (in `hass.data[DOMAIN]["feeds"]`):
+     Provider je aktivem Layer, Statusaggregation für WS/Sensor,
+     `async_preview`, Schlüsselzugriff (`key()`), Heimatmittelpunkt.
+   - `providers/` - eine Datei je Quelle (adsb_lol mit OpenSky-Rückfall,
+     opensky, celestrak, usgs, ll2, eonet, ucdp (CSV + API), swpc (Grid +
+     Kp), onionoo, overpass (Kachelwarteschlange, Tageslimit), natural_earth,
+     telegeography, radio_browser, aisstream (Websocket, `AisLimiter`),
+     firms, gfw, unhcr/ioda (Choroplethen über `countries`), generic
+     (`geojson_url`)). Raster-Layer haben keinen Provider: der Browser
+     lädt Kacheln direkt (I10).
+   - `feeds_parse.py` (Paketwurzel, HA-frei) - reine Parser
+     `bytes|str -> dict` je Quelle, `make_feature`, Profil-Validator
+     `validate_feature_collection`, Grid-Normalisierung, Overpass-Kachelung,
+     UCDP-Versionsermittlung, `AisLimiter`, `choropleth_join`.
+   Tracks sind flüchtig (I3): nie in SQLite, nie als Entity. Sensoren
+   nur als feste Aggregatmenge (`sensor.py`: aircraft_nearby,
+   vessels_nearby, kp_index, aurora_probability_home; existieren nur,
+   solange der Layer läuft).
+
+5. **HA-Schicht**:
    - `calendar.py` - eine Kalender-Entity pro Profil + „Alle Events";
      Occurrences wiederkehrender Events werden zu konkreten Terminen,
      unscharfe Events tragen „~" + schedule_text
@@ -101,17 +155,26 @@ Alle Teile unter `custom_components/chronotope/`:
      (Erdbeben-/GDACS-/GeoJSON-Feeds) als Events mit stabiler ID
      `geoloc:<entity_id>`, Kategorie `geo:<source>` und rollierendem
      Ende (+1 h je Feed-Refresh); verschwindet die Entity, wird das Event
-     geschlossen. `chronotope.purge` räumt sie später ab.
+     geschlossen. `chronotope.purge` räumt sie später ab. Allow-Liste der
+     Quellen (`geoloc_sources`); leer = alle außer `blitzortung` (Blitze
+     fluten sonst den Store und laufen über die Geo-Feed-Ebene im Panel).
+   - `config_flow.py` - Options in zwei Schritten: `init` (Näheerkennung,
+     geoloc-Brücke + Allow-Liste, Layer-Gesamtschalter, Standard-
+     Mittelpunkt) und `api_keys` (maskierte Felder; Werte nur in
+     `entry.options`, nie in WS/HTTP/Log).
    - `chronotope.match_visits` - rückwirkender Besuchsabgleich: liest die
      Positionshistorie der Personen aus dem Recorder
      (`history.get_significant_states`, lazy importiert) und matcht sie
      gegen vergangene Event-Occurrences (Radius-Parameter). Reicht nur so
      weit zurück wie die Recorder-Retention (`purge_keep_days`, Default 10).
 
-5. **Custom Panel** (`frontend/`-Quellcode → Bundle in
-   `custom_components/chronotope/frontend/chronotope-panel.js`):
-   Lit 3, alle Abhängigkeiten (Lit, Leaflet, leaflet.markercluster inkl.
-   CSS) via esbuild vendored, kein CDN. Leaflet-Karte mit OSM-Tiles
+6. **Custom Panel** (`frontend/`-Quellcode → Bundles in
+   `custom_components/chronotope/frontend/chronotope-panel.js` und
+   `chronotope-card.js`): Lit 3, alle Abhängigkeiten (Lit, Leaflet,
+   leaflet.markercluster inkl. CSS, satellite.js) via esbuild vendored,
+   kein CDN. Beide Bundles teilen sich die Komponenten; `define.js`
+   registriert Custom Elements nur einmal, damit Panel und Karte auf einer
+   Seite koexistieren. Leaflet-Karte mit OSM-Tiles
    (Darkmode: CSS-Invert-Filter), UI ausschließlich über HA-Theme-Variablen.
    Punkt-Events clustern; `geometry` (GeoJSON) rendert als `L.geoJSON`;
    HA-Zonen (inkl. Zuhause), Personen (`person.*`, live mit Foto/Initial)
@@ -131,6 +194,28 @@ Alle Teile unter `custom_components/chronotope/`:
    Punkt per Kartenklick, Linien/Flächen per Klick-Aufzeichnung mit
    Vorschau, Routing-Link (OSM) im Popup. Unscharfe Events erscheinen
    gestrichelt und zeigen `schedule_text` statt konkreter Termine.
+
+   **Layer im Frontend** (`frontend/src/layers/`): `registry.js` (Katalog,
+   Konfigurationen, Polling je Layer über `hass.fetchWithAuth`, Pause bei
+   `document.hidden`, bbox-Refetch mit 500-ms-Debounce), `canvas-base.js`
+   + `render-points.js` (Canvas-Punkte mit Kursrotation, Klick-Hit-Test),
+   `render-grid.js` (Gitter zellweise in projizierten Koordinaten),
+   `render-geojson.js` (Linien/Flächen, Choroplethen), `render-raster.js`
+   (XYZ/WMTS/WMS, `{Time}`-Auflösung), `satellites.js` (OMM → satrec →
+   Position, Bodenspur ±45 min), `interpolate.js` (Anzeige ein Intervall
+   hinter Echtzeit, lineare Interpolation, Dead Reckoning bis 2 Intervalle,
+   Trail 60 s), `attribution.js` (Credits aller aktiven Quellen, I5),
+   `popup.js` (Popups als DOM, I6). `layer-panel.js` ist die Layer-Leiste
+   (Schalter, Frischepunkt, Deckkraft, Parameter, NC-Badge, Presets,
+   generische Layer mit Testabruf vor dem Speichern). `card.js` ist der
+   Einstiegspunkt der Lovelace-Karte `custom:chronotope-map-card`.
+   Z-Reihenfolge über Leaflet-Panes: Basiskarte, Raster, Grid, Flächen,
+   Events, Feature-Punkte, Tracks, Geo-Feeds, Zonen/Personen. Der Dark-
+   Mode-Invert-Filter gilt nur für die Basiskarte (`no-invert` bei
+   Luftbildern). Panelzustand `chronotope-panel-state-v2` (Filter,
+   Profil, Basiskarte, Layer-Leiste), Migration aus v1; Deep-Link-Parameter
+   (`layers, lat, lon, z, profile, base`) überschreiben den Zustand ohne
+   ihn zu persistieren. Profile tragen optional `filters.layers: [ids]`.
 
 ## Event-Schema
 
@@ -169,14 +254,26 @@ Kalender-Entities und ICS-Export die Unschärfe ausweisen.
 ## Entwicklung
 
 - **Frontend bauen:** `cd frontend && npm ci && npm run build`
-  - schreibt das Bundle nach
-  `custom_components/chronotope/frontend/chronotope-panel.js`.
-  Das Bundle ist committed (vendored). Nach Änderungen an `frontend/src/`
-  immer neu bauen und das Bundle mitcommitten.
+  - schreibt die Bundles nach
+  `custom_components/chronotope/frontend/chronotope-panel.js` und
+  `chronotope-card.js`. Beide sind committed (vendored) und werden von
+  der CI gegen den Quellcode geprüft. Nach Änderungen an `frontend/src/`
+  immer neu bauen und beide Bundles mitcommitten.
 - **Tests:** `python3 -m unittest discover -s tests` - bewusst ohne
-  `homeassistant`-Abhängigkeit; getestet werden `store.py`, `ics.py`
-  und `importers.py`. Die Tests laden Module via `tests/helpers.py`
-  (importlib), damit `calendar.py` nicht das Stdlib-Modul verschattet.
+  `homeassistant`-Abhängigkeit; getestet werden `store.py`, `ics.py`,
+  `importers.py`, `feeds_parse.py`, `feeds/policy.py` und
+  `feeds/catalog.py`. Die Tests laden Module via `tests/helpers.py`
+  (importlib, auch Unterpfade wie `feeds/policy`), damit `calendar.py`
+  nicht das Stdlib-Modul verschattet. Fixtures sind synthetisch (I4).
+- **HA-Laufzeittests (optional, nicht in der CI):** `tests_ha/` fährt die
+  Integration in einer echten HA-Testinstanz hoch (Layer speichern,
+  Provider gegen gemockte Quellen laufen lassen, Daten-View, Sensor,
+  Auth). Voraussetzung: `pip install pytest-homeassistant-custom-component
+  home-assistant-frontend==<Version aus HA-Manifest>`, dann
+  `python -m pytest tests_ha`.
+- **Quellen prüfen:** `python3 scripts/probe_sources.py` (nur Stdlib,
+  nicht in der CI) ruft jeden Endpunkt einmal auf; Ausgabe gehört in den
+  PR-Text, wenn ein Provider angefasst wird.
 - **Installation:** Repo via HACS (Custom Repository) oder
   `custom_components/chronotope` nach `<config>/custom_components/`,
   dann Integration „Chronotope" über die UI hinzufügen (Config Flow,
@@ -185,15 +282,29 @@ Kalender-Entities und ICS-Export die Unschärfe ausweisen.
 
 ## Konventionen
 
-- `store.py`, `ics.py` und `importers.py` importieren kein Home Assistant -
-  nur Stdlib und `dateutil`. HA-spezifisches lebt in `__init__.py`,
-  `http.py`, `websocket_api.py`, `services.py`, `calendar.py`, `sensor.py`,
-  `nearby.py`, `geoloc.py`, `entity.py`, `signals.py`, `config_flow.py`.
+- `store.py`, `ics.py`, `importers.py`, `feeds_parse.py`, `feeds/policy.py`
+  und `feeds/catalog.py` importieren kein Home Assistant - nur Stdlib und
+  `dateutil` - und machen keine Netzwerkaufrufe (I1). HA-spezifisches
+  lebt in `__init__.py`, `http.py`, `websocket_api.py`, `layers_ws.py`,
+  `services.py`, `calendar.py`, `sensor.py`, `nearby.py`, `geoloc.py`,
+  `entity.py`, `signals.py`, `config_flow.py` und `feeds/{__init__,base,
+  views}.py` plus `feeds/providers/`.
 - Zeiten intern immer UTC-ISO-8601 (`+00:00`); Wochentag-/Uhrzeit-Filter
   und RRULE-Expansion werden in der HA-Zeitzone ausgewertet.
-- Kein CDN, keine externen Requests im Frontend außer OSM-Tiles; der Kern
-  macht kein Geocoding (places-Cache statt externer Lookups). Externe
-  Requests im Backend nur nutzerinitiiert (`import_*` mit URL).
+- Kein CDN, keine externen Requests im Frontend außer Basiskarten- und
+  Raster-Kacheln (I10; Daten-Layer kommen nur über die eigenen HA-Views);
+  der Kern macht kein Geocoding (places-Cache statt externer Lookups).
+  Externe Requests im Backend nur nutzerinitiiert (`import_*` mit URL)
+  oder in `feeds/` für Layer, die der Nutzer eingeschaltet hat (I2).
+- Fremde Strings sind nie Markup (I6): Popups und Tooltips als DOM-Knoten
+  mit `textContent`; kein `bindTooltip(string)`/`bindPopup(string)` mit
+  Fremdtext, keine Interpolation in `divIcon.html`.
+- API-Schlüssel liegen nur in `entry.options`, werden nie über WS/HTTP
+  ausgegeben und nie geloggt; der Katalog liefert nur `key_set: bool`.
+- Neue Provider: Parser HA-frei in `feeds_parse.py` mit Test und
+  synthetischem Fixture, `LayerSpec` im Katalog (Attribution, Lizenz,
+  Budget, Intervall), Provider in `feeds/providers/`, i18n-Titel
+  `layer.<id>` in en + de, README-Lizenztabelle nachziehen.
 - Schreibpfade feuern immer `notify_event_change`/`notify_profiles_changed`
   (`signals.py`), sonst veralten Kalender/Sensoren.
 - **Sprachen (HACS-Standard):** Alles Nutzer-Sichtbare ist Englisch als
