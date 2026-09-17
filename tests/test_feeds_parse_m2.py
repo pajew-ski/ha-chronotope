@@ -46,6 +46,27 @@ class EonetTestCase(unittest.TestCase):
 
 
 class OnionooTestCase(unittest.TestCase):
+    def test_countries_without_coordinates(self):
+        # Onionoo 8.0 shape: no latitude/longitude at all.
+        doc = {"version": "8.0", "relays_published": "2026-09-17 11:00:00", "relays": [
+            {"nickname": "a", "fingerprint": "A1", "flags": ["Running"], "observed_bandwidth": 125_000_000, "country": "de"},
+            {"nickname": "b", "fingerprint": "B2", "flags": ["Running"], "observed_bandwidth": 125_000_000, "country": "DE"},
+            {"nickname": "c", "fingerprint": "C3", "flags": ["Running"], "observed_bandwidth": 1000, "country": "nl"},
+            {"nickname": "d", "fingerprint": "D4", "flags": ["Running"]},
+        ], "bridges": []}
+        result = _parse.parse_onionoo_countries(json.dumps(doc))
+        self.assertEqual(result["values"], {"DE": 2, "NL": 1})
+        self.assertEqual(result["extra"]["DE"], {"relays": 2, "bandwidth_gbit": 2.0})
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["source_time"], "2026-09-17T11:00:00Z")
+        countries = [
+            {"type": "Feature", "properties": {"NAME": "Germany", "ISO_A2": "DE", "ISO_A3": "DEU"}, "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}},
+        ]
+        joined = _parse.choropleth_join(countries, result["values"], "tor_relays", extra=result["extra"])
+        self.assertEqual(joined["features"][0]["properties"]["detail"]["relays"], 2)
+        self.assertEqual(joined["unknown"], ["NL"])
+        self.assertEqual(_parse.parse_onionoo(json.dumps(doc))["features"], [])
+
     def test_relays(self):
         doc = {"version": "10.0", "relays_published": "2026-09-17 11:00:00", "relays": [
             {"nickname": "relay1", "fingerprint": "ABCDEF0123456789", "latitude": 52.5, "longitude": 13.4, "flags": ["Fast", "Guard"], "observed_bandwidth": 12500000, "country": "de"},

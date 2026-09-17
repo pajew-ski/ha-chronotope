@@ -1,4 +1,4 @@
-"""Natural Earth GeoJSON at a pinned commit (regions, countries)."""
+"""Natural Earth GeoJSON at a pinned tag (geography regions, countries)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from ..base import FeedProvider, FetchResult
 
 NE_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/{dataset}.geojson"
 COUNTRY_PROPS = ("ISO_A2", "ISO_A2_EH", "ISO_A3", "ISO_A3_EH", "ADM0_A3", "NAME", "CONTINENT", "POP_EST")
-REGION_PROPS = ("name", "admin", "iso_a2", "type_en", "adm1_code")
+REGION_PROPS = ("name", "region", "subregion", "featurecla", "scalerank")
 
 
 class NaturalEarthProvider(FeedProvider):

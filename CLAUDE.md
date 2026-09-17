@@ -119,7 +119,7 @@ Alle Teile unter `custom_components/chronotope/`:
      `async_preview`, Schlüsselzugriff (`key()`), Heimatmittelpunkt.
    - `providers/` - eine Datei je Quelle (adsb_lol mit OpenSky-Rückfall,
      opensky, celestrak, usgs, ll2, eonet, ucdp (CSV + API), swpc (Grid +
-     Kp), onionoo, overpass (Kachelwarteschlange, Tageslimit), natural_earth,
+     Kp), onionoo (Choroplethe je Land, Onionoo 8.0 hat keine Koordinaten), overpass (Kachelwarteschlange, Tageslimit), natural_earth,
      telegeography, radio_browser, aisstream (Websocket, `AisLimiter`),
      firms, gfw, unhcr/ioda (Choroplethen über `countries`), generic
      (`geojson_url`)). Raster-Layer haben keinen Provider: der Browser

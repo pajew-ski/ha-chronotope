@@ -369,7 +369,7 @@ _add(
         title_key="layer.regions",
         min_interval_s=24 * 3600,
         default_interval_s=365 * 24 * 3600,
-        params_schema={"dataset": {"type": "const", "default": "ne_50m_admin_1_states_provinces"}},
+        params_schema={"dataset": {"type": "const", "default": "ne_50m_geography_regions_polys"}},
         attribution=("Made with Natural Earth", "https://www.naturalearthdata.com"),
         license=_NE_LICENSE,
         budget=Budget(max_bytes=60_000_000, max_features=10_000, max_calls_per_hour=1),
@@ -424,10 +424,10 @@ _add(
         default_interval_s=3600,
         attribution=("Tor Project, Onionoo (Tor Metrics)", "https://metrics.torproject.org/onionoo.html"),
         license=LicenseInfo("CC0-1.0", "https://creativecommons.org/publicdomain/zero/1.0/", notes="Tor Metrics data license; verify (open point 9)."),
-        budget=Budget(max_bytes=30_000_000, max_features=10_000, max_calls_per_hour=2),
-        style={"icon": "relay", "color": "#7e57c2"},
-        bbox_filtered=True,
+        budget=Budget(max_bytes=30_000_000, max_features=1000, max_calls_per_hour=2),
+        style={"kind": "choropleth", "palette": "purples"},
         milestone="M2",
+        notes="Onionoo 8.0 no longer publishes relay coordinates (measured 2026-09-17): relays per country.",
     )
 )
 _add(
@@ -520,7 +520,6 @@ _add(
             "opacity": 0.7,
         },
         milestone="M2",
-        notes="Layer name unverified against GetCapabilities (open point 5).",
     )
 )
 _add(
@@ -550,13 +549,14 @@ _add(
         license=_NASA,
         raster={
             "type": "xyz",
-            "url": "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/{Time}/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png",
-            "time": "yearly-latest",
+            # GIBS publishes Black Marble only for 2012-01-01 and 2016-01-01
+            # (measured 2026-09-17); the date is therefore fixed.
+            "url": "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png",
             "max_zoom": 8,
             "opacity": 0.8,
         },
         milestone="M2",
-        notes="Night-time lights, not sky brightness. Time/level unverified (open point 6).",
+        notes="Night-time lights (2016 composite), not sky brightness.",
     )
 )
 _add(
@@ -570,12 +570,12 @@ _add(
         raster={
             "type": "wms",
             "url": "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi",
-            "params": {"layers": "VIIRS_SNPP_Thermal_Anomalies_375m_Day", "format": "image/png", "transparent": True},
+            # NOAA-21 has no gaps; SNPP is missing 2026-07-11 to 2026-07-15.
+            "params": {"layers": "VIIRS_NOAA21_Thermal_Anomalies_375m_All", "format": "image/png", "transparent": True},
             "time": "today",
             "opacity": 0.9,
         },
         milestone="M2",
-        notes="Layer name unverified (open point 6).",
     )
 )
 
@@ -602,7 +602,7 @@ BASEMAPS: dict[str, dict[str, Any]] = {
         "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         "max_zoom": 19,
         "attribution": {
-            "text": "Tiles © Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+            "text": "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community",
             "url": "https://www.esri.com/en-us/legal/terms/full-master-agreement",
         },
         "invert_dark": False,
@@ -617,9 +617,9 @@ PRESETS: list[dict[str, Any]] = [
         "provider": "wms",
         "title": "DWD wind (WMS)",
         "url": "https://maps.dwd.de/geoserver/dwd/wms",
-        "params": {"layers": "dwd:Wind_10m_Boeen", "format": "image/png", "transparent": True},
+        "params": {"layers": "dwd:icon_reg025_fd_sl_uv10m_wmc_windbarbs", "format": "image/png", "transparent": True},
         "attribution": {"text": "© Deutscher Wetterdienst", "url": "https://www.dwd.de"},
-        "license_note": "GeoNutzV. Layer name to be confirmed via GetCapabilities.",
+        "license_note": "GeoNutzV. ICON 10 m wind barbs (verified 2026-09-17).",
         "opacity": 0.6,
     },
     {

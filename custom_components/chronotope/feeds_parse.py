@@ -677,8 +677,11 @@ _UCDP_CANDIDATE_RE = re.compile(r"(GEDEvent_v(\d+)_(\d+)_(\d+)\.csv)", re.IGNORE
 _UCDP_VIOLENCE = {"1": "state-based", "2": "non-state", "3": "one-sided"}
 
 
-def discover_ucdp_candidate(html: bytes | str, base_url: str = "https://ucdp.uu.se/downloads/candidateged/") -> dict[str, Any] | None:
-    """Pick the newest ``GEDEvent_v<yy>_<0>_<m>.csv`` link from the download page."""
+def discover_ucdp_candidate(html: bytes | str, base_url: str = "https://ucdp.uu.se/downloads/") -> dict[str, Any] | None:
+    """Pick the newest monthly ``GEDEvent_v<yy>_<0>_<m>.csv`` link from the
+    download page ``/downloads/`` (``/downloads/candidateged/`` is a
+    JavaScript page without links, measured 2026-09-17). Quarterly files
+    (``GEDEvent_v26_01_26_06.csv``) do not match the monthly pattern."""
     text = _text(html)
     best: tuple[tuple[int, int, int], str] | None = None
     for match in _UCDP_CANDIDATE_RE.finditer(text):
@@ -843,7 +846,37 @@ def parse_swpc_kp(raw: bytes | str) -> dict[str, Any]:
 # -------------------------------------------------------------- Onionoo (8.3)
 
 
+def parse_onionoo_countries(raw: bytes | str) -> dict[str, Any]:
+    """Onionoo 8.0 relays (no coordinates any more) -> per-country values:
+    ``values`` = relay count (ISO2), ``extra`` = bandwidth sums for detail."""
+    doc = _loads(raw)
+    if not isinstance(doc, dict) or not isinstance(doc.get("relays"), list):
+        raise ParseError("Onionoo payload lacks 'relays'")
+    values: dict[str, float] = {}
+    bandwidth: dict[str, float] = {}
+    skipped = 0
+    for relay in doc["relays"]:
+        if not isinstance(relay, dict):
+            continue
+        code = _clean(relay.get("country"))
+        if not code or len(code) != 2:
+            skipped += 1
+            continue
+        code = code.upper()
+        values[code] = values.get(code, 0) + 1
+        bandwidth[code] = bandwidth.get(code, 0.0) + (_num(relay.get("observed_bandwidth")) or 0.0)
+    published = parse_iso(doc.get("relays_published"))
+    return {
+        "values": values,
+        "extra": {code: {"relays": int(values[code]), "bandwidth_gbit": round(bandwidth[code] * 8 / 1e9, 2)} for code in values},
+        "source_time": _iso(published) if published else None,
+        "skipped": skipped,
+    }
+
+
 def parse_onionoo(raw: bytes | str, max_features: int | None = None) -> dict[str, Any]:
+    """Point parser for Onionoo payloads that still carry coordinates
+    (versions before 8.0); the layer itself uses parse_onionoo_countries."""
     doc = _loads(raw)
     if not isinstance(doc, dict) or not isinstance(doc.get("relays"), list):
         raise ParseError("Onionoo payload lacks 'relays'")
@@ -1347,10 +1380,15 @@ def country_code(properties: dict[str, Any], length: int) -> str | None:
 
 
 def choropleth_join(
-    countries: list[dict[str, Any]], values: dict[str, float], kind: str, ts: str | None = None
+    countries: list[dict[str, Any]],
+    values: dict[str, float],
+    kind: str,
+    ts: str | None = None,
+    extra: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Join per-country values onto country features (5.3 profile). Codes of
-    the source without a matching country are counted in ``unknown``."""
+    the source without a matching country are counted in ``unknown``.
+    ``extra`` adds per-code detail fields."""
     if not values:
         return {"features": [], "unknown": [], "matched": 0, "vmax": 0.0}
     length = len(next(iter(values)))
@@ -1373,7 +1411,7 @@ def choropleth_join(
                 props.get("label") or detail_src.get("NAME") or detail_src.get("name") or code,
                 kind,
                 ts,
-                detail={"code": code, "value": value},
+                detail={"code": code, "value": value, **((extra or {}).get(code) or {})},
                 geometry=feature["geometry"],
                 value=value,
                 intensity=round(value / vmax, 4) if vmax else 0.0,

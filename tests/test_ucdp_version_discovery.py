@@ -21,7 +21,22 @@ CSV = """id,relid,year,type_of_violence,conflict_name,side_a,side_b,where_descri
 """
 
 
+DOWNLOADS_HTML = """
+<h3>UCDP Candidate Events Dataset</h3>
+<a href="candidateged/GEDEvent_v26_0_6.csv">GEDEvent_v26_0_6.csv</a>
+<a href="candidateged/GEDEvent_v26_01_26_06.csv">GEDEvent_v26_01_26_06.csv (quarterly)</a>
+<a href="candidateged/GEDEvent_v26_0_7.csv">GEDEvent_v26_0_7.csv</a>
+<a href="ged/ged251-csv.zip">GED 25.1</a>
+"""
+
+
 class UcdpTestCase(unittest.TestCase):
+    def test_downloads_page_picks_monthly_file(self):
+        found = _parse.discover_ucdp_candidate(DOWNLOADS_HTML)
+        self.assertEqual(found["version"], "26.0.7")
+        self.assertEqual(found["filename"], "GEDEvent_v26_0_7.csv")
+        self.assertEqual(found["url"], "https://ucdp.uu.se/downloads/candidateged/GEDEvent_v26_0_7.csv")
+
     def test_newest_version_selected(self):
         found = _parse.discover_ucdp_candidate(HTML)
         self.assertEqual(found["version"], "25.0.10")
@@ -29,7 +44,7 @@ class UcdpTestCase(unittest.TestCase):
 
     def test_relative_links(self):
         html = '<a href="GEDEvent_v25_0_3.csv">x</a>'
-        self.assertEqual(_parse.discover_ucdp_candidate(html)["url"], "https://ucdp.uu.se/downloads/candidateged/GEDEvent_v25_0_3.csv")
+        self.assertEqual(_parse.discover_ucdp_candidate(html)["url"], "https://ucdp.uu.se/downloads/GEDEvent_v25_0_3.csv")
         self.assertIsNone(_parse.discover_ucdp_candidate("<p>nothing</p>"))
 
     def test_csv_rows(self):

@@ -5,7 +5,7 @@ Leser: Coding Agent (Claude Code) und Reviewer. Sprache wie `CLAUDE.md` (Deutsch
 
 Diese Datei ist die Quelle, gegen die gebaut wird. Widerspricht ein Issue oder ein Prompt dieser Datei, gilt diese Datei, und der Widerspruch wird im Pull Request benannt.
 
-**Stand der Umsetzung:** Alle Meilensteine sind gebaut. Abschnitt 13 listet die Abweichungen von dieser Spezifikation, die beim Bau entstanden sind; Abschnitt 12 die offenen Punkte mit dem, was beim Bau ermittelt werden konnte. Die Endpunkt-Probes aus Abschnitt 0.5 konnten in der Build-Umgebung nicht laufen (Egress-Policy blockt alle Quell-Hosts außer GitHub). `scripts/probe_sources.py` ist vorhanden; seine Ausgabe fehlt noch im PR und ist vor dem Merge nachzuholen. Endpunkte, die dadurch unverifiziert blieben, sind in 8.x mit „unverifiziert“ markiert.
+**Stand der Umsetzung:** Alle Meilensteine sind gebaut. Abschnitt 13 listet die Abweichungen von dieser Spezifikation, Abschnitt 12 die offenen Punkte. Die Probes aus Abschnitt 0.5 liefen am 2026-09-17 aus einer Umgebung mit freiem Netzzugang (25 von 27 Endpunkten wie erwartet); die daraus folgenden Korrekturen sind eingearbeitet (13.13). Nur noch OpenSky ist unverifiziert (503 aus dem Cloud-Netz).
 
 ---
 
@@ -368,14 +368,14 @@ Werte liegen in `entry.options`, werden nie über WS oder HTTP ausgegeben und ni
 ### 7.5 Raster und WMS
 
 - **Bibliotheken:** `L.tileLayer` für XYZ/WMTS-REST, `L.tileLayer.wms` für WMS, jeweils ohne `crossOrigin`.
-- **Zeitparameter** (GIBS `{Time}`) werden je Preset berechnet (heute UTC, bei Kachelfehler einmal gestern; `yearly-latest` für Black Marble).
+- **Zeitparameter** (GIBS `{Time}`) werden je Preset berechnet (heute UTC, bei Kachelfehler einmal gestern); Black Marble trägt ein festes Datum.
 - **Dunkelmodus:** Der bestehende CSS-Invert-Filter gilt nur für die Basiskarte, nicht für Daten-Raster; Luftbilder (`invert_dark: false`) werden nie invertiert.
 
 ### 7.6 Basiskarten-Umschalter
 
 Umschalter für die Basiskarte:
 - OSM (Standard, bestehend)
-- BKG TopPlusOpen (WMS, Layer `web`, unverifiziert)
+- BKG TopPlusOpen (WMS, Layer `web`)
 - Esri World Imagery
 
 Jeweils mit Pflicht-Attribution. Die Auswahl gehört zum Panelzustand.
@@ -431,15 +431,15 @@ Jeder neue String hat Einträge in `frontend/src/i18n.js` (en und de) bzw. `tran
 ## 8. Quellenkatalog
 
 Legende Meilenstein: M1 schlüssellos, GEV-Parität; M2 schlüssellos, erweitert; M3 Schlüssel oder aufwändig.
-„Unverifiziert“ heißt: in der Build-Umgebung nicht per `probe_sources.py` prüfbar (Egress-Policy); aus Dokumentation implementiert.
+Gemessen am 2026-09-17 mit `probe_sources.py`; „unverifiziert“ steht nur noch bei OpenSky.
 
 ### 8.1 Bewegte Objekte (`tracks`)
 
 | Layer-ID | Quelle | Endpunkt | Auth | Lizenz / Bedingungen | Intervall | M |
 |---|---|---|---|---|---|---|
-| `flights_regional` | adsb.lol | `https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{nm}` (nm ≤ 250), unverifiziert | keine (ob inzwischen Schlüssel nötig: offen, 12.1) | ODbL 1.0, Attribution | 15 s (min 10) | M1 |
-| `flights_military` | adsb.lol | `https://api.adsb.lol/v2/mil`, unverifiziert | keine | ODbL 1.0 | 60 s (min 30) | M1 |
-| `flights_opensky` | OpenSky Network | `https://opensky-network.org/api/states/all?lamin=&lomin=&lamax=&lomax=` | anonym oder OAuth-Client (`api_key_opensky` = `client_id:client_secret`, Token-Endpunkt Keycloak) | nicht kommerziell; operativer Einsatz kann eine Vereinbarung verlangen; Zitation Schäfer et al. 2014 | 60 s anonym | M1, nur Rückfall |
+| `flights_regional` | adsb.lol | `https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{nm}` (nm ≤ 250), verifiziert | keine (verifiziert, kein Schlüssel) | ODbL 1.0, Attribution | 15 s (min 10) | M1 |
+| `flights_military` | adsb.lol | `https://api.adsb.lol/v2/mil`, verifiziert | keine | ODbL 1.0 | 60 s (min 30) | M1 |
+| `flights_opensky` | OpenSky Network | `https://opensky-network.org/api/states/all?lamin=&lomin=&lamax=&lomax=` | anonym oder OAuth-Client (`api_key_opensky` = `client_id:client_secret`, Token-Endpunkt Keycloak); unverifiziert: 503 aus dem Cloud-Netz, nur vom HA-Host prüfbar | nicht kommerziell; operativer Einsatz kann eine Vereinbarung verlangen; Zitation Schäfer et al. 2014 | 60 s anonym | M1, nur Rückfall |
 | `satellites_<gruppe>` | CelesTrak | `https://celestrak.org/NORAD/elements/gp.php?GROUP=<gruppe>&FORMAT=json` | keine | US-Regierungsdaten, Zitation „CelesTrak, T.S. Kelso“ | einmal je 2 h je Gruppe | M1 |
 | `vessels` | AISStream | `wss://stream.aisstream.io/v0/stream`, Abo mit `APIKey`, `BoundingBoxes`, `FilterMessageTypes: [PositionReport]` | Schlüssel | Beta ohne formale Nutzungsbedingungen, Attribution „AISStream.io“ | Stream, Ausgabe im Panel alle 10 s | M3 |
 
@@ -464,12 +464,12 @@ Legende Meilenstein: M1 schlüssellos, GEV-Parität; M2 schlüssellos, erweitert
 | Layer-ID | Quelle | Endpunkt | Auth | Lizenz / Bedingungen | Intervall | Aufbewahrung | M |
 |---|---|---|---|---|---|---|---|
 | `earthquakes` | USGS | `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/{magnitude}_{period}.geojson` (Parameter `magnitude`: `significant`, `4.5`, `2.5`, `all`; `period`: `hour`/`day`/`week`) | keine | US Public Domain, Hinweis „Data courtesy of the U.S. Geological Survey“ | 5 min | 7 Tage | M1 |
-| `launches` | The Space Devs, Launch Library 2 | `https://ll.thespacedevs.com/2.3.0/launches/upcoming/` und `/launches/previous/` (`?limit=50&mode=normal`), unverifiziert | keine, optional Token (`Authorization: Token`) | freie Nutzung; nicht ohne Mehrwert weiterleiten; Attribution erwünscht; anonym 15 Aufrufe je Stunde | 30 min (min 15), beide Endpunkte abwechselnd | 30 Tage nach Start | M1 |
-| `natural_events` | NASA EONET v3 | `https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=60` (JSON mit Geometrieliste; der Parser versteht auch die GeoJSON-Variante), unverifiziert | keine | NASA, gemeinfrei | 30 min | bis geschlossen plus 7 Tage; verschwundene Events werden geschlossen | M2 |
-| `conflicts` | UCDP Candidate | monatliche CSV unter `https://ucdp.uu.se/downloads/candidateged/` (aktuelle Datei per Downloadseite, Muster `GEDEvent_v<jj>_<0>_<m>.csv`), unverifiziert | keine | CC BY 4.0 (zu prüfen), Zitation laut Codebook | täglich prüfen, neu laden nur bei neuer Version | 90 Tage ab Ereignisdatum | M2 |
-| `conflicts_api` | UCDP API | `https://ucdpapi.pcr.uu.se/api/gedevents/<version>` (Param `version`, Default `25.1`) mit Header `x-ucdp-access-token`, unverifiziert | Token | wie oben | täglich | 90 Tage | M3 |
-| `fires` | NASA FIRMS | `https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/VIIRS_SNPP_NRT/{w},{s},{e},{n}/1`, unverifiziert | Schlüssel | gemeinfrei, Danksagung laut FIRMS | 30 min | 48 h | M3 |
-| `fishing` | Global Fishing Watch | `https://gateway.api.globalfishingwatch.org/v3/events?datasets[0]=public-global-fishing-events:latest&start-date&end-date&limit&offset`, bbox-Filter serverseitig in Chronotope, unverifiziert | Token (Bearer) | GFW-Nutzungsbedingungen (zu prüfen) | 6 h | 30 Tage | M3 |
+| `launches` | The Space Devs, Launch Library 2 | `https://ll.thespacedevs.com/2.3.0/launches/upcoming/` und `/launches/previous/` (`?limit=50&mode=normal`), verifiziert (Pad-Koordinaten vorhanden) | keine, optional Token (`Authorization: Token`) | freie Nutzung; nicht ohne Mehrwert weiterleiten; Attribution erwünscht; anonym 15 Aufrufe je Stunde | 30 min (min 15), beide Endpunkte abwechselnd | 30 Tage nach Start | M1 |
+| `natural_events` | NASA EONET v3 | `https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=60` (JSON mit Geometrieliste; der Parser versteht auch `/events/geojson`, das JSON mit Content-Type `rss+xml` liefert), verifiziert | keine | NASA, gemeinfrei | 30 min | bis geschlossen plus 7 Tage; verschwundene Events werden geschlossen | M2 |
+| `conflicts` | UCDP Candidate | monatliche CSV, verlinkt auf `https://ucdp.uu.se/downloads/` (relative Hrefs `candidateged/GEDEvent_v<jj>_<0>_<m>.csv`; `/downloads/candidateged/` selbst ist eine JavaScript-Seite ohne Links; Quartalsdateien `v26_01_26_06` werden ignoriert), gemessen | keine | CC BY 4.0 (zu prüfen), Zitation laut Codebook | täglich prüfen, neu laden nur bei neuer Version | 90 Tage ab Ereignisdatum | M2 |
+| `conflicts_api` | UCDP API | `https://ucdpapi.pcr.uu.se/api/gedevents/<version>` (Param `version`, Default `25.1`) mit Header `x-ucdp-access-token`, ohne Token nicht prüfbar | Token | wie oben | täglich | 90 Tage | M3 |
+| `fires` | NASA FIRMS | `https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/VIIRS_SNPP_NRT/{w},{s},{e},{n}/1`, ohne Schlüssel nicht prüfbar | Schlüssel | gemeinfrei, Danksagung laut FIRMS | 30 min | 48 h | M3 |
+| `fishing` | Global Fishing Watch | `https://gateway.api.globalfishingwatch.org/v3/events?datasets[0]=public-global-fishing-events:latest&start-date&end-date&limit&offset`, bbox-Filter serverseitig in Chronotope, ohne Token nicht prüfbar | Token (Bearer) | GFW-Nutzungsbedingungen (zu prüfen) | 6 h | 30 Tage | M3 |
 | `disasters_gdacs` | GDACS | über die HA-Core-Integration `gdacs` und die `geoloc`-Brücke | keine | laut Integration | laut Integration | laut Brücke | Doku |
 | `lightning` | Blitzortung | nur über die HACS-Integration `blitzortung` (`geo_location.lightning_strike_*`), Darstellung über die Geo-Feed-Ebene | keine | Blitzortung verbietet Drittanwendungen die Direktverbindung; **Chronotope ruft Blitzortung nie selbst ab** | laut Integration | nicht gespeichert (7.10) | Doku, M0 |
 
@@ -485,13 +485,13 @@ Legende Meilenstein: M1 schlüssellos, GEV-Parität; M2 schlüssellos, erweitert
 |---|---|---|---|---|---|---|
 | `datacenters` | OpenStreetMap über Overpass | `https://overpass-api.de/api/interpreter` (POST), Abfrage `nwr["telecom"="data_center"](bbox)` und `nwr["building"="data_center"](bbox)`, `out center tags` | keine | ODbL 1.0, „© OpenStreetMap contributors“; Overpass-Nutzungsregeln | bbox-Kachelcache, 7 Tage | M2 |
 | `dams` | OpenStreetMap über Overpass | `nwr["waterway"="dam"](bbox)`, `out center tags` | keine | ODbL 1.0 | bbox-Kachelcache, 7 Tage | M2 |
-| `regions` | Natural Earth | `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_50m_admin_1_states_provinces.geojson` (Tag v5.1.2 als Pin) | keine | Public Domain, Hinweis „Made with Natural Earth“ | einmalig (Jahresintervall), Cache | M2 |
+| `regions` | Natural Earth | `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_50m_geography_regions_polys.geojson` (Tag v5.1.2 als Pin; Naturregionen, nicht Admin-1) | keine | Public Domain, Hinweis „Made with Natural Earth“ | einmalig (Jahresintervall), Cache | M2 |
 | `countries` | Natural Earth | `.../v5.1.2/geojson/ne_110m_admin_0_countries.geojson` (verifiziert: 200, 839 kB) | keine | Public Domain | einmalig | M3 (Basis für Choroplethen) |
-| `submarine_cables` | TeleGeography | `https://www.submarinecablemap.com/api/v3/cable/cable-geo.json` und `.../landing-point/landing-point-geo.json`, unverifiziert | keine | CC BY-NC-SA 3.0, **nicht kommerziell**, Badge „NC“, nur zur Laufzeit geholt | 30 Tage | M2 |
-| `tor_relays` | Tor Project, Onionoo | `https://onionoo.torproject.org/details?type=relay&running=true&fields=nickname,fingerprint,latitude,longitude,flags,observed_bandwidth,country` | keine | Tor-Metrics-Daten (Lizenz: 12.9); `If-Modified-Since` Pflicht (bedingte Requests aktiv) | 1 h | M2 |
-| `radio_stations` | Radio Browser | Serverliste über `https://all.api.radio-browser.info/json/servers`, dann zufälliger Server `/json/stations/search?has_geo_info=true&hidebroken=true&limit=50000&order=votes&reverse=true`, unverifiziert | keine | PDDL 1.0 für Verzeichnisdaten | 24 h | M2 |
-| `refugees` | UNHCR Refugee Data Finder API | `https://api.unhcr.org/population/v1/population/?limit=1000&page&year&coo_all=true&coa_all=true`, Summe refugees + asylum_seekers je Asyl- oder Herkunftsland (Param `mode`), Choroplethe über `countries`, unverifiziert | keine | UNHCR-Nutzungsbedingungen (zu prüfen) | 30 Tage | M3 |
-| `internet_outages` | IODA (Georgia Tech) | `https://api.ioda.inetintel.cc.gatech.edu/v2/outages/summary?from&until&entityType=country`, Score `scores.overall`, Choroplethe, unverifiziert | keine | IODA-Bedingungen (zu prüfen) | 15 min | M3 |
+| `submarine_cables` | TeleGeography | `https://www.submarinecablemap.com/api/v3/cable/cable-geo.json` und `.../landing-point/landing-point-geo.json`, verifiziert (729 Kabel, 1925 Landepunkte) | keine | CC BY-NC-SA 3.0, **nicht kommerziell**, Badge „NC“, nur zur Laufzeit geholt | 30 Tage | M2 |
+| `tor_relays` | Tor Project, Onionoo | `https://onionoo.torproject.org/details?type=relay&running=true&fields=nickname,fingerprint,flags,observed_bandwidth,country`; Onionoo 8.0 liefert keine Koordinaten mehr (gemessen 0 von 200), daher Choroplethe je Land (Relay-Anzahl, Bandbreitensumme im Detail) | keine | Tor-Metrics-Daten (Lizenz: 12.9); `If-Modified-Since` Pflicht (bedingte Requests aktiv) | 1 h | M2 |
+| `radio_stations` | Radio Browser | Serverliste über `https://all.api.radio-browser.info/json/servers`, dann zufälliger Server `/json/stations/search?has_geo_info=true&hidebroken=true&limit=50000&order=votes&reverse=true`, verifiziert (`geo_lat`/`geo_long`) | keine | PDDL 1.0 für Verzeichnisdaten | 24 h | M2 |
+| `refugees` | UNHCR Refugee Data Finder API | `https://api.unhcr.org/population/v1/population/?limit=1000&page&year&coo_all=true&coa_all=true`, Summe refugees + asylum_seekers je Asyl- oder Herkunftsland (Param `mode`), Choroplethe über `countries`, verifiziert | keine | UNHCR-Nutzungsbedingungen (zu prüfen) | 30 Tage | M3 |
+| `internet_outages` | IODA (Georgia Tech) | `https://api.ioda.inetintel.cc.gatech.edu/v2/outages/summary?from&until&entityType=country`, Score `scores.overall`, Choroplethe, verifiziert | keine | IODA-Bedingungen (zu prüfen) | 15 min | M3 |
 | `custom_geojson` | Nutzer-URL | generisch `geojson_url` | – | vom Nutzer angegeben, Pflichtfeld | vom Nutzer, min 15 min | M2 |
 
 **Overpass:**
@@ -505,13 +505,13 @@ Legende Meilenstein: M1 schlüssellos, GEV-Parität; M2 schlüssellos, erweitert
 
 | Layer-ID | Quelle | Endpunkt | Auth | Lizenz / Bedingungen | M |
 |---|---|---|---|---|---|
-| `base_topplus` (Basiskarte `topplus`) | BKG TopPlusOpen | WMS `https://sgx.geodatenzentrum.de/wms_topplus_open`, Layer `web` (unverifiziert, 12.7) | keine | dl-de/by-2-0, Quellvermerk „© GeoBasis-DE / BKG“ | M2 |
-| `base_esri_imagery` (Basiskarte `esri_imagery`) | Esri World Imagery | `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}` | keine | Esri-Nutzungsbedingungen und Pflicht-Attribution (12.7) | M2 |
-| `dwd_radar` | Deutscher Wetterdienst | WMS `https://maps.dwd.de/geoserver/dwd/wms`, Layer `dwd:Niederschlagsradar` (unverifiziert, 12.5) | keine | GeoNutzV, „© DWD“ | M2 |
+| `base_topplus` (Basiskarte `topplus`) | BKG TopPlusOpen | WMS `https://sgx.geodatenzentrum.de/wms_topplus_open`, Layer `web` (verifiziert; auch `web_grau`, `web_light`) | keine | dl-de/by-2-0, Quellvermerk „© GeoBasis-DE / BKG“ | M2 |
+| `base_esri_imagery` (Basiskarte `esri_imagery`) | Esri World Imagery | `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}` | keine | Esri-Nutzungsbedingungen; Attribution aus `copyrightText`: „Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community“ | M2 |
+| `dwd_radar` | Deutscher Wetterdienst | WMS `https://maps.dwd.de/geoserver/dwd/wms`, Layer `dwd:Niederschlagsradar` (GetMap 200, verifiziert) | keine | GeoNutzV, „© DWD“ | M2 |
 | `dwd_warnings` | Deutscher Wetterdienst | WMS gleiche Adresse, Layer `dwd:Warnungen_Gemeinden_vereinigt` | keine | GeoNutzV, „© DWD“ | M2 |
-| `dwd_wind` | Deutscher Wetterdienst | Preset, Layer `dwd:Wind_10m_Boeen` (Kandidat, unverifiziert) | keine | GeoNutzV | M2, Preset statt eingebaut |
-| `night_lights` | NASA GIBS | XYZ `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/{Time}/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`, `{Time}` = 1. Januar des Vorjahres (Jahresprodukt), Level 8 (unverifiziert, 12.6) | keine | NASA, gemeinfrei; Hinweis „NASA GIBS / Black Marble“ | M2 |
-| `thermal_anomalies` | NASA GIBS (FIRMS-Darstellung) | WMS `https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi`, Layer `VIIRS_SNPP_Thermal_Anomalies_375m_Day`, `TIME` = heute UTC (unverifiziert) | keine | gemeinfrei, FIRMS-Danksagung | M2 |
+| `dwd_wind` | Deutscher Wetterdienst | Preset, Layer `dwd:icon_reg025_fd_sl_uv10m_wmc_windbarbs` (ICON 10-m-Windpfeile, verifiziert) | keine | GeoNutzV | M2, Preset |
+| `night_lights` | NASA GIBS | XYZ `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`; GIBS führt Black Marble nur für 2012-01-01 und 2016-01-01, das Datum ist fest (gemessen) | keine | NASA, gemeinfrei; Hinweis „NASA GIBS / Black Marble“ | M2 |
+| `thermal_anomalies` | NASA GIBS (FIRMS-Darstellung) | WMS `https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi`, Layer `VIIRS_NOAA21_Thermal_Anomalies_375m_All` (lückenlos; SNPP fehlt 2026-07-11 bis 15), `TIME` = heute UTC (GetMap 200, verifiziert) | keine | gemeinfrei, FIRMS-Danksagung | M2 |
 | `aurora` | NOAA SWPC OVATION | `https://services.swpc.noaa.gov/json/ovation_aurora_latest.json`, Gitter 360 x 181, Werte in Prozent | keine | US-Regierungsdaten, Hinweis „NOAA SWPC“ | M2 (`grid`) |
 | `custom_xyz`, `custom_wms`, `custom_wmts` | Nutzer-URL | generisch | – | vom Nutzer, Pflichtfeld | M2 |
 
@@ -663,20 +663,20 @@ Alle mit synthetischen Fixtures (I4).
 
 ## 12. Offene Punkte
 
-Beim Bau zu klären und hier nachzutragen (Stand nach dem Erstbau; keine Live-Probes möglich, siehe Kopf):
+Stand nach den Probes vom 2026-09-17 (Umgebung mit freiem Netzzugang, 25 von 27 Endpunkten wie erwartet):
 
-1. **adsb.lol:** Ist für die Point- und Mil-Endpunkte inzwischen ein Schlüssel nötig? Unverifiziert. Falls ja, greift der OpenSky-Rückfall automatisch (Blocker-Code 401/403), ein Schlüsselfeld fehlt dann noch im Options-Flow.
-2. **OpenSky:** aktuelle anonyme Kreditgrenze und ob ein Abrufintervall von 60 s darin bleibt. Unverifiziert; das Mindestintervall ist 60 s, mit OAuth-Client konfigurierbar.
-3. **Launch Library 2:** Pfade `2.3.0/launches/upcoming/` und `/previous/` mit `mode=normal` implementiert; unverifiziert.
-4. **EONET, UNHCR, IODA, GFW, FIRMS, TeleGeography, Natural Earth, Radio Browser:** Natural Earth (110m-Länder) ist verifiziert; die übrigen Pfade sind aus der Dokumentation implementiert und unverifiziert. Lizenztexte für UNHCR, IODA, GFW noch zu prüfen.
-5. **DWD:** Radar-Layername `dwd:Niederschlagsradar` und Wind-Layer `dwd:Wind_10m_Boeen` sind Kandidaten; per GetCapabilities zu bestätigen.
-6. **GIBS:** Black Marble als Jahresprodukt mit `{Time}` = Vorjahr-01-01 und Level 8; Thermal Anomalies als `VIIRS_SNPP_Thermal_Anomalies_375m_Day` in EPSG:3857; beides zu bestätigen.
-7. **BKG TopPlusOpen und Esri World Imagery:** Layername `web` und Quellvermerke sind implementiert, Nutzungsbedingungen zu prüfen.
-8. **`satellite.js`:** 6.0.2 hat `json2satrec`; 7.x wegen WASM-Abhängigkeiten nicht bündelbar (7.3). Geklärt.
-9. **Onionoo:** Lizenz der Relay-Daten (im Katalog als CC0 mit Prüfhinweis).
-10. **UCDP Candidate:** Lizenz und Zitationsform (im Katalog als CC BY 4.0 mit Codebook-Hinweis); API-Version-Parameter Default `25.1`.
+1. **adsb.lol:** Point- und Mil-Endpunkt antworten ohne Schlüssel. Geklärt.
+2. **OpenSky:** zweimal 503 vom Upstream aus dem Cloud-Netz; ob Rechenzentrums-IPs gesperrt sind oder der Dienst gestört war, ist nur vom HA-Host aus prüfbar. Als Rückfallquelle unkritisch; Mindestintervall 60 s.
+3. **Launch Library 2:** 2.3.0 mit `mode=normal` liefert `pad.latitude/longitude`. Geklärt.
+4. **EONET, UNHCR, IODA, TeleGeography, Natural Earth, Radio Browser:** verifiziert. EONET `/events/geojson` liefert JSON mit Content-Type `rss+xml`; der Provider nutzt `/events`. Lizenztexte für UNHCR, IODA, GFW weiter zu prüfen. FIRMS und GFW ohne Schlüssel nicht messbar.
+5. **DWD:** `dwd:Niederschlagsradar` verifiziert; Wind als `dwd:icon_reg025_fd_sl_uv10m_wmc_windbarbs` vorhanden und als Preset aufgenommen. Geklärt.
+6. **GIBS:** Black Marble existiert nur für 2012-01-01 und 2016-01-01 (festes Datum 2016-01-01); Thermal Anomalies als `VIIRS_NOAA21_Thermal_Anomalies_375m_All` in EPSG:3857. Geklärt.
+7. **BKG TopPlusOpen und Esri World Imagery:** Layer `web` (dazu `web_grau`, `web_light`); Esri-Attribution laut `copyrightText` „Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community“. Nutzungsbedingungen von Esri für Dritt-Clients weiter zu prüfen.
+8. **`satellite.js`:** 6.0.2 mit `json2satrec`. Geklärt.
+9. **Onionoo:** Lizenz der Relay-Daten (im Katalog als CC0 mit Prüfhinweis). Seit Onionoo 8.0 keine Koordinaten mehr; Layer ist eine Choroplethe je Land.
+10. **UCDP Candidate:** Links liegen auf `/downloads/`; Lizenz und Zitationsform (CC BY 4.0 mit Codebook-Hinweis) zu bestätigen; API-Version-Parameter Default `25.1`.
 11. **AISStream:** Abdeckung in Binnengewässern (Messung vor produktivem Einsatz).
-12. **HA-Laufzeittest:** Der Backend-Code ist gegen die Modulstruktur geprüft (pyflakes, py_compile); ein Start in einer echten HA-Instanz steht aus.
+12. **HA-Laufzeittest:** `tests_ha/` läuft gegen HA 2026.2.3 und 2026.9 (siehe 13.14).
 
 ---
 
@@ -694,3 +694,5 @@ Beim Bau zu klären und hier nachzutragen (Stand nach dem Erstbau; keine Live-Pr
 10. **Opacity-Regler** gibt es zusätzlich für `features`-Layer (Choroplethen, Kabel), nicht nur für `raster`/`grid`.
 11. **Kein `getConfigElement`** für die Karte (in 7.8 optional).
 12. **Sensor-Namen** folgen HA-Konventionen: `sensor.chronotope_aurora_probability_at_home`, `sensor.chronotope_statistics`.
+13. **Korrekturen aus den Probes vom 2026-09-17:** Black Marble mit festem Datum 2016-01-01 statt Jahreslogik; `tor_relays` als Choroplethe je Land (Onionoo 8.0 ohne Koordinaten); UCDP-Erkennung auf `/downloads/` mit relativen Hrefs, Quartalsdateien ausgeschlossen; `regions` auf `ne_50m_geography_regions_polys`; `dwd_wind`-Preset mit ICON-Windpfeilen; `thermal_anomalies` auf NOAA-21; Esri-Attribution mit „Vantor“.
+14. **HA-Version der Laufzeittests:** zuerst 2026.2.3, dann 2026.9 (jeweils alle sechs Tests grün).

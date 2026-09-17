@@ -8,7 +8,7 @@ from typing import Any
 from ... import feeds_parse
 from ..base import Failure, FeedProvider, FetchResult
 
-DOWNLOAD_PAGE = "https://ucdp.uu.se/downloads/candidateged/"
+DOWNLOAD_PAGE = "https://ucdp.uu.se/downloads/"
 API_URL = "https://ucdpapi.pcr.uu.se/api/gedevents/{version}"
 _MAX_API_PAGES = 20
 

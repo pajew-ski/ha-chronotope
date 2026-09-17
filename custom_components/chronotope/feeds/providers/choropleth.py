@@ -38,14 +38,21 @@ class ChoroplethProvider(FeedProvider):
 
     _countries_cache: list[dict[str, Any]] = []
 
-    async def async_fetch_values(self) -> dict[str, float]:
+    async def async_fetch_values(self) -> dict[str, float] | None:
+        """Values per ISO code; None means 'not modified'. Subclasses may
+        set ``self._extra`` (per-code detail) and ``self._source_time``."""
         raise NotImplementedError
 
+    _extra: dict[str, dict[str, Any]] | None = None
+
     async def async_fetch(self) -> FetchResult | None:
+        self._extra = None
         values = await self.async_fetch_values()
+        if values is None:
+            return None
         countries = await self._countries()
         joined = await self.hass.async_add_executor_job(
-            feeds_parse.choropleth_join, countries, values, self.value_kind
+            lambda: feeds_parse.choropleth_join(countries, values, self.value_kind, extra=self._extra)
         )
         self._joined = joined
         return FetchResult(200, b"{}", {})

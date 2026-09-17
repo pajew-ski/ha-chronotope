@@ -338,15 +338,15 @@ How it works, in short:
 | `datacenters`, `dams` | OpenStreetMap via [Overpass](https://overpass-api.de) | ODbL 1.0 | © OpenStreetMap contributors | no | no |
 | `regions`, `countries` | [Natural Earth](https://www.naturalearthdata.com) (pinned commit) | public domain | Made with Natural Earth | no | no |
 | `submarine_cables` | [TeleGeography](https://www.submarinecablemap.com) | CC BY-NC-SA 3.0 | TeleGeography | no | **yes** |
-| `tor_relays` | [Onionoo](https://metrics.torproject.org/onionoo.html) | Tor Metrics data (CC0, to be confirmed) | Tor Project | no | no |
+| `tor_relays` (relays per country; Onionoo 8.0 publishes no coordinates) | [Onionoo](https://metrics.torproject.org/onionoo.html) | Tor Metrics data (CC0, to be confirmed) | Tor Project | no | no |
 | `radio_stations` | [Radio Browser](https://www.radio-browser.info) | PDDL 1.0 | Community Radio Browser | no | no |
 | `refugees` | [UNHCR Refugee Data Finder](https://www.unhcr.org/refugee-statistics/) | UNHCR terms | UNHCR | no | no |
 | `internet_outages` | [IODA](https://ioda.inetintel.cc.gatech.edu) | IODA terms | IODA, Georgia Tech | no | no |
 | `aurora` + Kp sensor | [NOAA SWPC](https://www.swpc.noaa.gov) OVATION | US government data | NOAA SWPC | no | no |
 | `dwd_radar`, `dwd_warnings`, preset `dwd_wind` | [DWD GeoServer](https://maps.dwd.de) WMS | GeoNutzV | © Deutscher Wetterdienst | no | no |
-| `night_lights`, `thermal_anomalies` | [NASA GIBS](https://earthdata.nasa.gov/gibs) | NASA, public domain | NASA GIBS / Black Marble, FIRMS | no | no |
+| `night_lights` (Black Marble 2016 composite), `thermal_anomalies` (VIIRS NOAA-21) | [NASA GIBS](https://earthdata.nasa.gov/gibs) | NASA, public domain | NASA GIBS / Black Marble, FIRMS | no | no |
 | base map `topplus` | [BKG TopPlusOpen](https://www.bkg.bund.de) WMS | dl-de/by-2-0 | © GeoBasis-DE / BKG | no | no |
-| base map `esri_imagery` | Esri World Imagery | Esri terms, attribution required | Tiles © Esri and partners | no | no |
+| base map `esri_imagery` | Esri World Imagery | Esri terms, attribution required | Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community | no | no |
 | custom `xyz` / `wmts` / `wms` / `geojson_url` | your URL | yours to check | required field | – | – |
 
 "NC" marks non-commercial licenses; those layers carry an **NC** badge in
@@ -532,10 +532,10 @@ Responses include `distance_km` (when a center is set), `occurrences`
   and raster overlay tiles; geocoding is the data source's job (the
   address cache keeps it to once per address); backend fetches happen
   only for user-initiated imports and for data layers you switched on.
-- Layer endpoints marked "to be confirmed" in `docs/spec-geo-layers.md`
-  (DWD layer names, GIBS time/level, UCDP API, GFW, IODA, UNHCR paths)
-  were implemented from documentation; run `scripts/probe_sources.py` and
-  open an issue if a provider stays in `error`.
+- Layer endpoints were probed on 2026-09-17 (`scripts/probe_sources.py`);
+  only OpenSky could not be reached from a cloud network. Keyed sources
+  (FIRMS, GFW, UCDP API) are implemented from their documentation; open
+  an issue if a provider stays in `error`.
 
 ## Development
 
